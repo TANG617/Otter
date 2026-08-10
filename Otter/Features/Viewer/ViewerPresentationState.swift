@@ -1,0 +1,290 @@
+import CoreGraphics
+import Foundation
+import Observation
+
+@MainActor
+@Observable
+final class ViewerPresentationState {
+    let items: [ViewerItem]
+
+    private let pipeline: any MediaPipelineProtocol
+    private var frameTasks: [ViewerFrameKey: Task<Void, Never>] = [:]
+    private var frames: [ViewerFrameKey: MediaFrame] = [:]
+    private var displayedFrames: [UUID: MediaFrame] = [:]
+    private var displayedVariants: [UUID: AssetVariant] = [:]
+    private var pendingFrames: [ViewerFrameKey: MediaFrame] = [:]
+    private var errors: [ViewerFrameKey: String] = [:]
+    private var ratings: [UUID: AssetRating]
+    private var isStarted = false
+    private var viewport = PixelSize(width: 0, height: 0)
+    private var displayScale = 1.0
+
+    private(set) var currentIndex: Int
+    private(set) var selectedVariant: AssetVariant = .current
+    private(set) var interactionState: ViewerInteractionState = .idle
+    private(set) var zoomScale = 1.0
+    private(set) var resetGeneration = 0
+    private(set) var activeRequests: [ViewerFrameKey: MediaRequest] = [:]
+
+    init(
+        items: [ViewerItem],
+        initialAssetID: UUID? = nil,
+        pipeline: any MediaPipelineProtocol
+    ) {
+        self.items = items
+        self.pipeline = pipeline
+        ratings = Dictionary(uniqueKeysWithValues: items.compactMap { item in
+            item.rating.map { (item.id, $0) }
+        })
+        currentIndex = initialAssetID.flatMap { id in items.firstIndex(where: { $0.id == id }) } ?? 0
+    }
+
+    var currentItem: ViewerItem? {
+        items.indices.contains(currentIndex) ? items[currentIndex] : nil
+    }
+
+    var currentFrame: MediaFrame? {
+        currentItem.flatMap { displayedFrames[$0.id] }
+    }
+
+    var displayedVariant: AssetVariant? {
+        currentItem.flatMap { displayedVariants[$0.id] }
+    }
+
+    var currentErrorMessage: String? {
+        guard let currentItem else { return nil }
+        return errors[ViewerFrameKey(assetID: currentItem.id, variant: selectedVariant)]
+    }
+
+    var isLoadingCurrent: Bool {
+        currentItem != nil && currentFrame == nil && currentErrorMessage == nil
+    }
+
+    var isLoadingSelectedVariant: Bool {
+        guard let item = currentItem else { return false }
+        let key = ViewerFrameKey(assetID: item.id, variant: selectedVariant)
+        return frames[key] == nil && errors[key] == nil
+    }
+
+    var retainedFrameCount: Int { frames.count }
+
+    func frame(for assetID: UUID) -> MediaFrame? {
+        displayedFrames[assetID]
+    }
+
+    func rating(for assetID: UUID) -> AssetRating? {
+        ratings[assetID]
+    }
+
+    func setRating(_ rating: AssetRating?, for assetID: UUID) {
+        guard items.contains(where: { $0.id == assetID }) else { return }
+        ratings[assetID] = rating
+    }
+
+    func start() {
+        guard !isStarted else { return }
+        isStarted = true
+        reconcileRequests()
+    }
+
+    func stop() {
+        isStarted = false
+        frameTasks.values.forEach { $0.cancel() }
+        frameTasks.removeAll()
+        activeRequests.removeAll()
+    }
+
+    func updateViewport(size: CGSize, displayScale: CGFloat) {
+        let next = PixelSize(width: max(size.width, 0), height: max(size.height, 0))
+        let nextScale = max(Double(displayScale), 1)
+        guard viewport != next || self.displayScale != nextScale else { return }
+        viewport = next
+        self.displayScale = nextScale
+        reconcileRequests()
+    }
+
+    func select(index: Int) {
+        guard items.indices.contains(index), index != currentIndex else { return }
+        interactionState = .paging
+        currentIndex = index
+        zoomScale = 1
+        resetGeneration &+= 1
+        showCachedSelectedVariantIfAvailable()
+        reconcileRequests()
+        Task { [weak self] in
+            await Task.yield()
+            guard let self, self.interactionState == .paging else { return }
+            self.setInteractionState(.idle)
+        }
+    }
+
+    func selectVariant(_ variant: AssetVariant) {
+        guard selectedVariant != variant else { return }
+        selectedVariant = variant
+        showCachedSelectedVariantIfAvailable()
+        reconcileRequests()
+    }
+
+    func updateZoomScale(_ scale: CGFloat) {
+        zoomScale = Double(ZoomGeometry.clampedZoomScale(scale))
+    }
+
+    func setInteractionState(_ state: ViewerInteractionState) {
+        guard interactionState != state else { return }
+        interactionState = state
+        if state == .idle {
+            applyPendingCurrentFrame()
+            reconcileRequests()
+        }
+    }
+
+    func requestFit() {
+        zoomScale = 1
+        resetGeneration &+= 1
+        reconcileRequests()
+    }
+
+    func retryCurrent() {
+        guard let currentItem else { return }
+        let key = ViewerFrameKey(assetID: currentItem.id, variant: selectedVariant)
+        errors.removeValue(forKey: key)
+        frameTasks.removeValue(forKey: key)?.cancel()
+        activeRequests.removeValue(forKey: key)
+        reconcileRequests()
+    }
+
+    private func reconcileRequests() {
+        guard isStarted,
+              viewport.width > 0,
+              viewport.height > 0,
+              items.indices.contains(currentIndex) else {
+            return
+        }
+
+        let lower = max(0, currentIndex - 1)
+        let upper = min(items.count - 1, currentIndex + 1)
+        var desired: [ViewerFrameKey: MediaRequest] = [:]
+        for index in lower...upper {
+            let isCurrent = index == currentIndex
+            let variant = isCurrent ? selectedVariant : AssetVariant.current
+            let key = ViewerFrameKey(assetID: items[index].id, variant: variant)
+            desired[key] = makeRequest(for: items[index], isCurrent: isCurrent, variant: variant)
+        }
+        pruneFrames(retaining: desired.keys)
+
+        for (key, request) in desired where activeRequests[key] != request {
+            let oldTask = frameTasks[key]
+            let stream = pipeline.frames(for: request)
+            activeRequests[key] = request
+            frameTasks[key] = Task { [weak self] in
+                do {
+                    for try await frame in stream {
+                        guard !Task.isCancelled else { return }
+                        self?.receive(frame, key: key)
+                    }
+                    self?.finishRequest(key: key, request: request, error: nil)
+                } catch is CancellationError {
+                    self?.finishRequest(key: key, request: request, error: nil)
+                } catch {
+                    self?.finishRequest(
+                        key: key,
+                        request: request,
+                        error: "This photo is unavailable."
+                    )
+                }
+            }
+            oldTask?.cancel()
+        }
+
+        let obsolete = Set(activeRequests.keys).subtracting(desired.keys)
+        for key in obsolete {
+            activeRequests.removeValue(forKey: key)
+            frameTasks.removeValue(forKey: key)?.cancel()
+        }
+    }
+
+    private func makeRequest(
+        for item: ViewerItem,
+        isCurrent: Bool,
+        variant: AssetVariant
+    ) -> MediaRequest {
+        let isZoomed = isCurrent && zoomScale > 1.05
+        let purpose: MediaPurpose = isCurrent ? (isZoomed ? .zoom : .viewer) : .timeline
+        return MediaRequest(
+            asset: item.descriptor,
+            variant: variant,
+            purpose: purpose,
+            viewport: viewport,
+            displayScale: displayScale,
+            zoomScale: isZoomed ? zoomScale : 1,
+            qualityPolicy: isCurrent ? .maximum : .balanced,
+            dynamicRange: .standard,
+            contentMode: .aspectFit,
+            priority: isCurrent ? .interactive : .neighbor
+        )
+    }
+
+    private func receive(_ frame: MediaFrame, key: ViewerFrameKey) {
+        if let existing = frames[key], existing.quality >= frame.quality {
+            return
+        }
+        frames[key] = frame
+        errors.removeValue(forKey: key)
+
+        let isSelectedCurrent = currentItem?.id == key.assetID && selectedVariant == key.variant
+        if isSelectedCurrent,
+           interactionState != .idle,
+           displayedFrames[key.assetID] != nil {
+            pendingFrames[key] = frame
+            return
+        }
+
+        if isSelectedCurrent || displayedFrames[key.assetID] == nil || key.variant == .current {
+            displayedFrames[key.assetID] = frame
+            displayedVariants[key.assetID] = key.variant
+        }
+    }
+
+    private func finishRequest(
+        key: ViewerFrameKey,
+        request: MediaRequest,
+        error: String?
+    ) {
+        guard activeRequests[key] == request else { return }
+        activeRequests.removeValue(forKey: key)
+        frameTasks.removeValue(forKey: key)
+        if frames[key] == nil {
+            errors[key] = error ?? "This photo is unavailable."
+        }
+    }
+
+    private func showCachedSelectedVariantIfAvailable() {
+        guard let item = currentItem else { return }
+        let key = ViewerFrameKey(assetID: item.id, variant: selectedVariant)
+        if let frame = frames[key] {
+            displayedFrames[item.id] = frame
+            displayedVariants[item.id] = selectedVariant
+        }
+    }
+
+    private func applyPendingCurrentFrame() {
+        guard let item = currentItem else { return }
+        let key = ViewerFrameKey(assetID: item.id, variant: selectedVariant)
+        guard let frame = pendingFrames.removeValue(forKey: key) else { return }
+        displayedFrames[item.id] = frame
+        displayedVariants[item.id] = selectedVariant
+    }
+
+    private func pruneFrames(retaining desiredKeys: Dictionary<ViewerFrameKey, MediaRequest>.Keys) {
+        var retainedKeys = Set(desiredKeys)
+        if selectedVariant == .original, let currentItem {
+            retainedKeys.insert(ViewerFrameKey(assetID: currentItem.id, variant: .current))
+        }
+        let retainedAssetIDs = Set(retainedKeys.map(\.assetID))
+        frames = frames.filter { retainedKeys.contains($0.key) }
+        pendingFrames = pendingFrames.filter { retainedKeys.contains($0.key) }
+        errors = errors.filter { retainedKeys.contains($0.key) }
+        displayedFrames = displayedFrames.filter { retainedAssetIDs.contains($0.key) }
+        displayedVariants = displayedVariants.filter { retainedAssetIDs.contains($0.key) }
+    }
+}
