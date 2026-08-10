@@ -1,0 +1,67 @@
+name: iOS CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - codex/implement-otter-mvp
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Report Xcode and runtimes
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Otter.xcodeproj \
+            -scheme Otter \
+            -clonedSourcePackagesDirPath .build/SourcePackages
+
+      - name: Build for iOS Simulator
+        run: |
+          xcodebuild build \
+            -project Otter.xcodeproj \
+            -scheme Otter \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .build/DerivedData \
+            -clonedSourcePackagesDirPath .build/SourcePackages \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Unit tests
+        run: |
+          xcodebuild test \
+            -project Otter.xcodeproj \
+            -scheme Otter \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5' \
+            -derivedDataPath .build/DerivedData \
+            -clonedSourcePackagesDirPath .build/SourcePackages \
+            -only-testing:OtterTests \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Fixture UI smoke
+        run: |
+          xcodebuild test \
+            -project Otter.xcodeproj \
+            -scheme Otter \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5' \
+            -derivedDataPath .build/DerivedData \
+            -clonedSourcePackagesDirPath .build/SourcePackages \
+            -only-testing:OtterUITests/OtterUITests/testFixtureLaunchesLibraryShell \
+            CODE_SIGNING_ALLOWED=NO
+
