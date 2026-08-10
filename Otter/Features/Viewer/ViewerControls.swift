@@ -4,6 +4,7 @@ struct ViewerPage: View {
     let item: ViewerItem
     let pageIndex: Int
     let pageCount: Int
+    let rating: AssetRating?
     let frame: MediaFrame?
     let resetGeneration: Int
     let isCurrent: Bool
@@ -15,6 +16,7 @@ struct ViewerPage: View {
             surface: frame?.surface,
             accessibilityLabel: ViewerAccessibilityID.pageLabel(
                 item: item,
+                rating: rating,
                 index: pageIndex,
                 count: pageCount
             ),
@@ -37,6 +39,7 @@ struct ViewerBottomControls: View {
     let onPrevious: () -> Void
     let onNext: () -> Void
     let onFit: () -> Void
+    let onInfo: () -> Void
     let onDownload: () -> Void
 
     var body: some View {
@@ -75,6 +78,13 @@ struct ViewerBottomControls: View {
                 ratingPicker
 
                 ViewerIconButton(
+                    title: "Photo Info",
+                    systemImage: "info.circle",
+                    accessibilityIdentifier: ViewerAccessibilityID.info,
+                    action: onInfo
+                )
+
+                ViewerIconButton(
                     title: "Download Photo",
                     systemImage: "square.and.arrow.down",
                     accessibilityIdentifier: ViewerAccessibilityID.download,
@@ -96,22 +106,36 @@ struct ViewerBottomControls: View {
     }
 
     private var ratingPicker: some View {
-        Picker("Rating", selection: $rating) {
-            Text("Unrated").tag(nil as AssetRating?)
-            Text("Reject").tag(AssetRating.rejected as AssetRating?)
-            Text("1 Star").tag(AssetRating.one as AssetRating?)
-            Text("2 Stars").tag(AssetRating.two as AssetRating?)
-            Text("3 Stars").tag(AssetRating.three as AssetRating?)
-            Text("4 Stars").tag(AssetRating.four as AssetRating?)
-            Text("5 Stars").tag(AssetRating.five as AssetRating?)
+        Menu {
+            ratingButton("Unrated", value: nil)
+            ratingButton("Reject", value: .rejected)
+            ratingButton("1 Star", value: .one)
+            ratingButton("2 Stars", value: .two)
+            ratingButton("3 Stars", value: .three)
+            ratingButton("4 Stars", value: .four)
+            ratingButton("5 Stars", value: .five)
+        } label: {
+            Image(systemName: rating == nil ? "star" : rating == .rejected ? "xmark" : "star.fill")
+                .font(.body.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
-        .pickerStyle(.menu)
-        .labelsHidden()
-        .frame(width: 44, height: 44)
         .foregroundStyle(.white)
         .background(.thinMaterial, in: Circle())
         .accessibilityLabel("Rating, \(ViewerRatingLabel.text(for: rating))")
         .accessibilityIdentifier(ViewerAccessibilityID.rate)
+    }
+
+    private func ratingButton(_ title: String, value: AssetRating?) -> some View {
+        Button {
+            rating = value
+        } label: {
+            if rating == value {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
     }
 }
 

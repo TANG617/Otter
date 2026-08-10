@@ -8,15 +8,17 @@ struct AppRootView: View {
 
     @State private var viewer: ViewerPresentation?
     @State private var sheet: RootSheet?
-    @State private var libraryRevision = 0
+    @State private var latestAssetUpdate: TimelineAsset?
 
     var body: some View {
         rootContent
             .fullScreenCover(item: $viewer) { presentation in
                 viewerHost(presentation)
             }
-            .sheet(item: $sheet) { destination in
-                sheetContent(destination)
+            .sheet(isPresented: isSheetPresented) {
+                if let destination = sheet {
+                    sheetContent(destination)
+                }
             }
             .onChange(of: session.state) { _, state in
                 if state == .signedOut || state == .authenticationInvalid {
@@ -90,12 +92,16 @@ struct AppRootView: View {
                 accountNamespace: accountNamespace,
                 assetStore: assetStore,
                 mediaPipeline: mediaPipeline,
+                updatedAsset: latestAssetUpdate,
                 onSelectAsset: { asset, frame, window in
-                    presentViewer(selected: asset, initialFrame: frame, window: window)
+                    presentViewer(
+                        selected: asset,
+                        initialFrame: frame,
+                        window: window
+                    )
                 },
                 onOpenSettings: openSettings
             )
-            .id(libraryRevision)
         }
     }
 
@@ -114,7 +120,7 @@ struct AppRootView: View {
                             assetID: item.id,
                             accountNamespace: item.descriptor.accountNamespace
                         )
-                        libraryRevision &+= 1
+                        latestAssetUpdate = result.asset
                         return .verified(result.asset.rating)
                     } catch {
                         return .failed
@@ -131,12 +137,13 @@ struct AppRootView: View {
                 presentation: presentation,
                 pipeline: runtime.mediaPipeline,
                 exporter: runtime.exporter,
-                currentExportAvailable: true,
+                currentExportAvailable: environment.fixtureCurrentExportAvailable,
                 onRate: { item, rating in
+                    if environment.fixtureRatingWritesFail { return .failed }
                     guard let verified = await runtime.assetStore.setRating(rating, assetID: item.id) else {
                         return .failed
                     }
-                    libraryRevision &+= 1
+                    latestAssetUpdate = verified
                     return .verified(verified.rating)
                 },
                 onSettings: {
@@ -151,23 +158,19 @@ struct AppRootView: View {
     @ViewBuilder
     private func sheetContent(_ destination: RootSheet) -> some View {
         switch destination {
-        case let .settings(snapshot):
+        case let .settings(snapshot, diagnostics):
             SettingsView(
                 snapshot: snapshot,
+                diagnosticsSnapshot: diagnostics,
                 updateCacheLimit: environment.updateCacheLimit,
                 clearCache: { await environment.clearMediaCache() },
-                openDiagnostics: openDiagnostics,
+                refreshDiagnostics: { .updated(await environment.diagnosticsSnapshot()) },
+                copyDiagnosticsSummary: { summary in UIPasteboard.general.string = summary },
                 signOut: {
                     let outcome = await environment.signOut()
                     sheet = nil
                     return outcome
                 }
-            )
-        case let .diagnostics(snapshot):
-            DiagnosticsView(
-                snapshot: snapshot,
-                refresh: { .updated(await environment.diagnosticsSnapshot()) },
-                copySummary: { summary in UIPasteboard.general.string = summary }
             )
         }
     }
@@ -175,29 +178,43 @@ struct AppRootView: View {
     private func presentViewer(
         selected: TimelineAsset,
         initialFrame: MediaFrame?,
-        window: [TimelineAsset]
+        window: TimelineViewerWindow
     ) {
-        let source = window.contains(where: { $0.id == selected.id }) ? window : [selected]
-        let items = source.map { asset in
-            ViewerItem(
-                descriptor: TimelineMediaDemand.descriptor(for: asset),
-                accessibilityLabel: TimelineAccessibilityLabel.asset(asset),
-                rating: asset.rating
-            )
-        }
+        let source = window.assets.contains(where: { $0.id == selected.id }) ? window.assets : [selected]
+        let items = source.map(Self.viewerItem(for:))
         viewer = ViewerPresentation(
             selectedAssetID: selected.id,
             items: items,
-            initialFrame: initialFrame
+            initialFrame: initialFrame,
+            loadMoreItems: {
+                (await window.loadMore()).map(Self.viewerItem(for:))
+            }
+        )
+    }
+
+    private static func viewerItem(for asset: TimelineAsset) -> ViewerItem {
+        ViewerItem(
+            descriptor: TimelineMediaDemand.descriptor(for: asset),
+            accessibilityLabel: TimelineAccessibilityLabel.asset(asset),
+            rating: asset.rating
         )
     }
 
     private func openSettings() {
-        Task { sheet = .settings(await environment.settingsSnapshot()) }
+        Task {
+            async let settings = environment.settingsSnapshot()
+            async let diagnostics = environment.diagnosticsSnapshot()
+            sheet = .settings(await settings, await diagnostics)
+        }
     }
 
-    private func openDiagnostics() {
-        Task { sheet = .diagnostics(await environment.diagnosticsSnapshot()) }
+    private var isSheetPresented: Binding<Bool> {
+        Binding(
+            get: { sheet != nil },
+            set: { presented in
+                if !presented { sheet = nil }
+            }
+        )
     }
 }
 
@@ -205,19 +222,16 @@ private struct ViewerPresentation: Identifiable {
     let selectedAssetID: UUID
     let items: [ViewerItem]
     let initialFrame: MediaFrame?
+    let loadMoreItems: @MainActor @Sendable () async -> [ViewerItem]
 
     var id: UUID { selectedAssetID }
 }
 
 private enum RootSheet: Identifiable {
-    case settings(SettingsSnapshot)
-    case diagnostics(DiagnosticsSnapshot)
+    case settings(SettingsSnapshot, DiagnosticsSnapshot)
 
     var id: String {
-        switch self {
-        case .settings: "settings"
-        case .diagnostics: "diagnostics"
-        }
+        "settings"
     }
 }
 
@@ -241,6 +255,7 @@ private struct ViewerHostView: View {
             initialAssetID: presentation.selectedAssetID,
             initialFrame: presentation.initialFrame,
             pipeline: pipeline,
+            loadMore: presentation.loadMoreItems,
             actions: ViewerActions(
                 onDismiss: onDismiss,
                 onRate: onRate,

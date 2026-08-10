@@ -7,18 +7,21 @@ struct ImmichClient: AssetRemoteDataSource, Sendable {
     private let requestBuilder: ImmichRequestBuilder
     private let transport: any ImmichHTTPTransport
     private let allowedOrigin: URLOrigin
+    private let onAuthenticationInvalid: @Sendable () -> Void
 
     init(
         accountNamespace: UUID,
         serverURL: NormalizedServerURL,
         apiKey: APIKey,
-        transport: (any ImmichHTTPTransport)? = nil
+        transport: (any ImmichHTTPTransport)? = nil,
+        onAuthenticationInvalid: @escaping @Sendable () -> Void = { }
     ) {
         self.accountNamespace = accountNamespace
         self.serverURL = serverURL
         requestBuilder = ImmichRequestBuilder(serverURL: serverURL, apiKey: apiKey)
         self.transport = transport ?? URLSessionImmichTransport(serverURL: serverURL, apiKey: apiKey)
         allowedOrigin = URLOrigin(url: serverURL.url)!
+        self.onAuthenticationInvalid = onAuthenticationInvalid
     }
 
     func probeVersion() async throws -> ServerProbeResult {
@@ -119,6 +122,9 @@ struct ImmichClient: AssetRemoteDataSource, Sendable {
             try ImmichHTTPResponseValidator.validate(response)
             return data
         } catch let error as ImmichClientError {
+            if error == .authenticationInvalid {
+                onAuthenticationInvalid()
+            }
             throw error
         } catch let error as URLError {
             throw ImmichClientError.transport(code: error.errorCode)

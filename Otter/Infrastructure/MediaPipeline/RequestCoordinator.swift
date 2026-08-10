@@ -115,8 +115,23 @@ actor RequestCoordinator {
         }
     }
 
+    func invalidate(accountNamespace: UUID) {
+        let byteKeys = byteRequests.keys.filter { $0.accountNamespace == accountNamespace }
+        for key in byteKeys {
+            byteRequests.removeValue(forKey: key)?.task.cancel()
+        }
+        let renderKeys = renderRequests.keys.filter { $0.byteKey.accountNamespace == accountNamespace }
+        for key in renderKeys {
+            renderRequests.removeValue(forKey: key)?.task.cancel()
+        }
+    }
+
     func stats() -> (byteRequests: Int, renderRequests: Int) {
         (byteRequests.count, renderRequests.count)
+    }
+
+    func effectiveBytePriority(for key: ByteCacheKey) -> MediaPriority? {
+        byteRequests[key]?.priority
     }
 
     private func byteLease(

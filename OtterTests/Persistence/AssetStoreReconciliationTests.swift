@@ -82,12 +82,17 @@ struct AssetStoreReconciliationTests {
         try database.upsertAssets([old], accountNamespace: TestAssetFactory.accountNamespace)
         try database.updateSyncState(
             accountNamespace: TestAssetFactory.accountNamespace,
+            reconciliationAt: Date(timeIntervalSince1970: 1_000),
             highestObservedUpdatedAt: old.updatedAt
         )
         let remote = QueuedAssetRemote(pages: [
             AssetSearchPage(assets: [], nextContinuation: nil),
         ])
-        let store = LocalFirstAssetStore(database: database, remote: remote)
+        let store = LocalFirstAssetStore(
+            database: database,
+            remote: remote,
+            now: { Date(timeIntervalSince1970: 1_100) }
+        )
 
         let result = try await store.refresh(
             accountNamespace: TestAssetFactory.accountNamespace,
@@ -98,6 +103,37 @@ struct AssetStoreReconciliationTests {
         #expect(try database.count(accountNamespace: TestAssetFactory.accountNamespace) == 1)
         let request = try #require(await remote.capturedRequests().last)
         #expect(request.updatedAfter == Date(timeIntervalSince1970: 880))
+    }
+
+    @Test("Incremental refresh becomes a daily full reconciliation")
+    func scheduledReconciliation() async throws {
+        let database = try makeDatabase()
+        let retained = TestAssetFactory.asset(id: TestAssetFactory.deterministicID(1))
+        let removed = TestAssetFactory.asset(id: TestAssetFactory.deterministicID(2))
+        try database.upsertAssets([retained, removed], accountNamespace: TestAssetFactory.accountNamespace)
+        try database.updateSyncState(
+            accountNamespace: TestAssetFactory.accountNamespace,
+            reconciliationAt: Date(timeIntervalSince1970: 1_000),
+            highestObservedUpdatedAt: retained.updatedAt
+        )
+        let remote = QueuedAssetRemote(pages: [
+            AssetSearchPage(assets: [retained], nextContinuation: nil),
+        ])
+        let store = LocalFirstAssetStore(
+            database: database,
+            remote: remote,
+            now: { Date(timeIntervalSince1970: 1_000 + LocalFirstAssetStore.fullReconciliationInterval + 1) }
+        )
+
+        let result = try await store.refresh(
+            accountNamespace: TestAssetFactory.accountNamespace,
+            mode: .incremental(overlap: 300)
+        )
+
+        #expect(result.deletedCount == 1)
+        #expect(try database.asset(id: retained.id, accountNamespace: retained.accountNamespace) != nil)
+        #expect(try database.asset(id: removed.id, accountNamespace: removed.accountNamespace) == nil)
+        #expect(try #require(await remote.capturedRequests().first).updatedAfter == nil)
     }
 
     @Test("Full reconciliation removes assets missing from stable search")

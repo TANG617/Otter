@@ -78,6 +78,13 @@ enum TimelineGrouping {
             }
             return $0.id.uuidString.lowercased() > $1.id.uuidString.lowercased()
         }
+        return sectionsFromOrdered(ordered, calendar: calendar)
+    }
+
+    static func sectionsFromOrdered(
+        _ ordered: [TimelineAsset],
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> [TimelineSection] {
         var sections: [TimelineSection] = []
         var currentDay: Date?
         var currentAssets: [TimelineAsset] = []

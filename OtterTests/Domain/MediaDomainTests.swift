@@ -96,7 +96,7 @@ struct MediaCacheIdentityTests {
         #expect(PixelBucket.normalized(for: 347, purpose: .timeline) == 384)
         #expect(PixelBucket.normalized(for: 401, purpose: .timeline) == 512)
         #expect(PixelBucket.normalized(for: 1_830, purpose: .viewer) == 2_048)
-        #expect(PixelBucket.normalized(for: 9_000, purpose: .zoom) == 6_144)
+        #expect(PixelBucket.normalized(for: 9_000, purpose: .zoom) == 4_096)
     }
 }
 

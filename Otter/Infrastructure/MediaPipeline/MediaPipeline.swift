@@ -70,6 +70,7 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
     private let retryPolicy: MediaRetryPolicy
     private let metrics: MediaMetrics
     private let fileManager: FileManager
+    private let onAuthenticationInvalid: @Sendable () -> Void
 
     init(
         planner: RepresentationPlanner = .init(),
@@ -85,7 +86,8 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
         negativeCache: NegativeMediaCache = .init(),
         retryPolicy: MediaRetryPolicy = .init(),
         metrics: MediaMetrics = .init(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        onAuthenticationInvalid: @escaping @Sendable () -> Void = { }
     ) {
         self.planner = planner
         self.profileStore = profileStore
@@ -101,6 +103,7 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
         self.retryPolicy = retryPolicy
         self.metrics = metrics
         self.fileManager = fileManager
+        self.onAuthenticationInvalid = onAuthenticationInvalid
     }
 
     func peek(_ request: MediaRequest) -> MediaFrame? {
@@ -148,6 +151,10 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                     await self.metrics.emit(.requestCancelled, priority: request.priority)
                     continuation.finish()
                 } catch {
+                    if let mediaError = error as? MediaError,
+                       case .httpStatus(401, _) = mediaError {
+                        self.onAuthenticationInvalid()
+                    }
                     continuation.finish(throwing: error)
                 }
             }
@@ -184,6 +191,8 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
     func handleMemoryPressure() async { memoryCache.removeAll(keepingPinned: true) }
 
     func clearDisk(accountNamespace: UUID) async throws {
+        await coordinator.invalidate(accountNamespace: accountNamespace)
+        await Task.yield()
         try await diskCache.clear(accountNamespace: accountNamespace)
     }
 
@@ -211,7 +220,8 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
         let profile = await profileStore.profile(accountNamespace: request.asset.accountNamespace)
         let plan = try planner.plan(for: request, profile: profile)
         await metrics.emit(.requestCreated, priority: request.priority)
-        var bestQuality: MediaQuality?
+        var bestFrame: MediaFrame?
+        var lastRecoverableError: Error?
 
         if request.variant == .current, let hash = request.asset.thumbhash {
             if let placeholder = try? await scheduler.run(
@@ -226,27 +236,54 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                     isFinalForCurrentDemand: false
                 )
                 if case .terminated = continuation.yield(frame) { return }
-                bestQuality = .placeholder
+                bestFrame = frame
                 await metrics.emit(.firstFrameDelivered, priority: request.priority)
             }
         }
 
         for (index, step) in plan.enumerated() {
             try Task.checkCancellation()
-            let frame = try await frame(for: step, request: request, allowCorruptRecovery: true)
-            guard bestQuality == nil || bestQuality! < frame.quality else { continue }
+            let candidate: MediaFrame
+            do {
+                candidate = try await frame(for: step, request: request, allowCorruptRecovery: true)
+            } catch let error as MediaError where Self.isRepresentationLocal(error) {
+                lastRecoverableError = error
+                continue
+            }
+            guard bestFrame == nil || bestFrame!.quality < candidate.quality else { continue }
             let delivered = MediaFrame(
-                surface: frame.surface,
-                quality: frame.quality,
-                source: frame.source,
+                surface: candidate.surface,
+                quality: candidate.quality,
+                source: candidate.source,
                 isFinalForCurrentDemand: index == plan.indices.last
             )
             if case .terminated = continuation.yield(delivered) { return }
-            if bestQuality == nil { await metrics.emit(.firstFrameDelivered, priority: request.priority) }
-            bestQuality = frame.quality
+            if bestFrame == nil { await metrics.emit(.firstFrameDelivered, priority: request.priority) }
+            bestFrame = delivered
             if delivered.isFinalForCurrentDemand {
                 await metrics.emit(.finalFrameDelivered, priority: request.priority)
             }
+        }
+        if let bestFrame, !bestFrame.isFinalForCurrentDemand {
+            let final = MediaFrame(
+                surface: bestFrame.surface,
+                quality: bestFrame.quality,
+                source: bestFrame.source,
+                isFinalForCurrentDemand: true
+            )
+            if case .terminated = continuation.yield(final) { return }
+            await metrics.emit(.finalFrameDelivered, priority: request.priority)
+        } else if bestFrame == nil, let lastRecoverableError {
+            throw lastRecoverableError
+        }
+    }
+
+    private static func isRepresentationLocal(_ error: MediaError) -> Bool {
+        switch error {
+        case .unavailableRepresentation, .corruptMedia, .cacheEntryMissing, .httpStatus(404, _):
+            true
+        default:
+            false
         }
     }
 
@@ -320,20 +357,26 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
             while true {
                 try Task.checkCancellation()
                 do {
-                    await self.metrics.emit(.networkStart, key: key, priority: priority)
-                    await self.metrics.emit(.queueWait, key: key, priority: priority)
+                    var effectivePriority = await self.coordinator.effectiveBytePriority(for: key) ?? priority
+                    await self.metrics.emit(.networkStart, key: key, priority: effectivePriority)
+                    await self.metrics.emit(.queueWait, key: key, priority: effectivePriority)
                     let downloaded = try await self.scheduler.run(
                         id: workID,
                         lane: self.lane(for: key.representation),
-                        priority: priority,
+                        priority: effectivePriority,
                         operation: { try await self.transport.download(request) }
                     )
                     defer { try? self.fileManager.removeItem(at: downloaded.fileURL) }
+                    try Task.checkCancellation()
+                    effectivePriority = await self.coordinator.effectiveBytePriority(for: key) ?? effectivePriority
                     let properties = try await self.scheduler.run(
+                        id: workID,
                         lane: .decode,
-                        priority: priority,
+                        priority: effectivePriority,
                         operation: { try await self.decoder.inspect(fileURL: downloaded.fileURL, mimeType: downloaded.mimeType) }
                     )
+                    try Task.checkCancellation()
+                    effectivePriority = await self.coordinator.effectiveBytePriority(for: key) ?? effectivePriority
                     let observation = RepresentationObservation(
                         mimeType: properties.mimeType ?? "application/octet-stream",
                         maximumObservedDimension: max(properties.pixelWidth, properties.pixelHeight),
@@ -346,8 +389,9 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                         accountNamespace: key.accountNamespace
                     )
                     let cached = try await self.scheduler.run(
+                        id: workID,
                         lane: .diskIO,
-                        priority: priority,
+                        priority: effectivePriority,
                         operation: {
                             try await self.diskCache.storeDownloadedFile(
                                 at: downloaded.fileURL,
@@ -358,8 +402,8 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                             )
                         }
                     )
-                    await self.metrics.emit(.diskCommit, key: key, priority: priority, byteCount: cached.byteCount)
-                    await self.metrics.emit(.networkEnd, key: key, priority: priority, byteCount: cached.byteCount)
+                    await self.metrics.emit(.diskCommit, key: key, priority: effectivePriority, byteCount: cached.byteCount)
+                    await self.metrics.emit(.networkEnd, key: key, priority: effectivePriority, byteCount: cached.byteCount)
                     return cached
                 } catch {
                     if let mediaError = error as? MediaError,

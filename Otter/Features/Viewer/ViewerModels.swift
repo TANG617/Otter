@@ -63,6 +63,7 @@ enum ViewerAccessibilityID {
     static let fit = "viewer.fit"
     static let rate = "viewer.rate"
     static let download = "viewer.download"
+    static let info = "viewer.info"
     static let previous = "viewer.previous"
     static let next = "viewer.next"
     static let loading = "viewer.loading"
@@ -73,8 +74,13 @@ enum ViewerAccessibilityID {
         "viewer.media.\(assetID.uuidString.lowercased())"
     }
 
-    static func pageLabel(item: ViewerItem, index: Int, count: Int) -> String {
-        "\(item.accessibilityLabel), \(index + 1) of \(count)"
+    static func pageLabel(
+        item: ViewerItem,
+        rating: AssetRating?,
+        index: Int,
+        count: Int
+    ) -> String {
+        "Photo, \(index + 1) of \(count), \(ViewerRatingLabel.text(for: rating))"
     }
 }
 

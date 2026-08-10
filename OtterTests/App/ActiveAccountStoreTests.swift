@@ -37,4 +37,18 @@ struct ActiveAccountStoreTests {
 
         #expect(throws: ActiveAccountStoreError.corruptRecord) { try store.load() }
     }
+
+    @Test("A new credential on the same server receives an isolated namespace")
+    func newCredentialNamespaceIsolation() {
+        let previous = ActiveAccountRecord(
+            namespace: UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!,
+            serverURL: URL(string: "http://photos.local")!,
+            serverVersion: SemanticVersion(major: 3, minor: 1, patch: 0),
+            cacheLimitBytes: SettingsCacheLimit.gibibytes2.rawValue
+        )
+
+        let replacement = AccountNamespacePolicy.namespaceForNewConnection(existing: previous)
+
+        #expect(replacement != previous.namespace)
+    }
 }

@@ -171,6 +171,35 @@ struct TimelineStateTests {
         #expect(state.assets == [asset])
     }
 
+    @Test("A verified rating update replaces only the matching loaded asset")
+    @MainActor
+    func verifiedRatingUpdateIsNarrow() async {
+        let asset = TestAssetFactory.asset(rating: nil)
+        let fixture = TimelinePageFixture(
+            first: TimelineAssetPage(assets: [asset], nextCursor: nil)
+        )
+        let state = TimelineState(
+            accountNamespace: TestAssetFactory.accountNamespace,
+            dataClient: client(fixture),
+            calendar: utcCalendar
+        )
+        await state.loadIfNeeded()
+
+        let verified = TestAssetFactory.asset(
+            id: asset.id,
+            localDateTime: asset.localDateTime,
+            createdAt: asset.createdAt,
+            updatedAt: asset.updatedAt,
+            rating: .five
+        )
+        state.applyVerifiedUpdate(verified)
+
+        #expect(state.assets.count == 1)
+        #expect(state.assets.first?.rating == .five)
+        #expect(state.sections.first?.assets.first?.rating == .five)
+        #expect(state.assetIndices[asset.id] == 0)
+    }
+
     private func client(_ fixture: TimelinePageFixture) -> TimelineDataClient {
         TimelineDataClient(
             localPage: { request in try await fixture.page(request) },

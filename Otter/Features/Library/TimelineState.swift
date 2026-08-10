@@ -102,7 +102,7 @@ final class TimelineState {
                 )
             )
             try Task.checkCancellation()
-            merge(page.assets)
+            appendOrderedPage(page.assets)
             updateContinuation(page.nextCursor)
         } catch is CancellationError {
             return
@@ -120,6 +120,20 @@ final class TimelineState {
         } else if paginationFailure != nil {
             await loadMore()
         }
+    }
+
+    func applyVerifiedUpdate(_ asset: TimelineAsset) {
+        guard asset.accountNamespace == accountNamespace,
+              let index = assetIndices[asset.id] else { return }
+        assets[index] = asset
+
+        let day = calendar.startOfDay(for: asset.timelineDate)
+        guard let sectionIndex = sections.firstIndex(where: { $0.day == day }),
+              let assetIndex = sections[sectionIndex].assets.firstIndex(where: { $0.id == asset.id })
+        else { return }
+        var sectionAssets = sections[sectionIndex].assets
+        sectionAssets[assetIndex] = asset
+        sections[sectionIndex] = TimelineSection(day: day, assets: sectionAssets)
     }
 
     private func reloadLocalWindow(targetCount: Int) async throws {
@@ -161,17 +175,35 @@ final class TimelineState {
         }
         assets = Self.ordered(Array(byID.values))
         assetIndices = Dictionary(uniqueKeysWithValues: assets.enumerated().map { ($0.element.id, $0.offset) })
-        sections = TimelineGrouping.sections(from: assets, calendar: calendar)
+        sections = TimelineGrouping.sectionsFromOrdered(assets, calendar: calendar)
     }
 
-    private func merge(_ incoming: [TimelineAsset]) {
-        var byID = Dictionary(uniqueKeysWithValues: assets.map { ($0.id, $0) })
-        for asset in incoming where asset.accountNamespace == accountNamespace && asset.isTimelineEligible {
-            byID[asset.id] = asset
+    private func appendOrderedPage(_ incoming: [TimelineAsset]) {
+        var known = Set(assetIndices.keys)
+        let additions = incoming.filter { asset in
+            asset.accountNamespace == accountNamespace
+                && asset.isTimelineEligible
+                && known.insert(asset.id).inserted
         }
-        assets = Self.ordered(Array(byID.values))
-        assetIndices = Dictionary(uniqueKeysWithValues: assets.enumerated().map { ($0.element.id, $0.offset) })
-        sections = TimelineGrouping.sections(from: assets, calendar: calendar)
+        guard !additions.isEmpty else { return }
+
+        let startIndex = assets.count
+        assets.append(contentsOf: additions)
+        for (offset, asset) in additions.enumerated() {
+            assetIndices[asset.id] = startIndex + offset
+        }
+
+        for asset in additions {
+            let day = calendar.startOfDay(for: asset.timelineDate)
+            if let last = sections.last, last.day == day {
+                sections[sections.count - 1] = TimelineSection(
+                    day: day,
+                    assets: last.assets + [asset]
+                )
+            } else {
+                sections.append(TimelineSection(day: day, assets: [asset]))
+            }
+        }
     }
 
     private func updateContinuation(_ cursor: TimelineCursor?) {

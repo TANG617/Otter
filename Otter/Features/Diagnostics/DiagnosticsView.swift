@@ -2,6 +2,7 @@ import SwiftUI
 
 @MainActor
 struct DiagnosticsView: View {
+    @Environment(\.dismiss) private var dismiss
     typealias Refresh = @Sendable () async -> DiagnosticsRefreshOutcome
     typealias CopySummary = @MainActor (String) -> Void
 
@@ -23,22 +24,24 @@ struct DiagnosticsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                connectionSection
-                capabilitiesSection
-                librarySection
-                mediaSection
-                applicationSection
-                actionsSection
+        Form {
+            connectionSection
+            capabilitiesSection
+            librarySection
+            mediaSection
+            applicationSection
+            actionsSection
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Diagnostics")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { dismiss() }
             }
-            .formStyle(.grouped)
-            .navigationTitle("Diagnostics")
-            .navigationBarTitleDisplayMode(.inline)
-            .accessibilityIdentifier(AccessibilityID.Diagnostics.screen)
-            .task(id: refreshRevision) {
-                await refreshIfNeeded()
-            }
+        }
+        .task(id: refreshRevision) {
+            await refreshIfNeeded()
         }
     }
 

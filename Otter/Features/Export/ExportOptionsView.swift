@@ -35,11 +35,12 @@ struct ExportOptionsView: View {
                 Section("Version") {
                     Picker("Version", selection: $variant) {
                         ForEach(ExportVariant.allCases) { option in
-                            Text(option.title).tag(option)
+                            Text(option.title)
+                                .tag(option)
+                                .accessibilityIdentifier(AccessibilityID.Export.variant(option))
                         }
                     }
                     .pickerStyle(.inline)
-                    .accessibilityIdentifier(AccessibilityID.Export.variant)
 
                     if !currentAvailable {
                         Label(
@@ -74,7 +75,6 @@ struct ExportOptionsView: View {
             .formStyle(.grouped)
             .navigationTitle("Download")
             .navigationBarTitleDisplayMode(.inline)
-            .accessibilityIdentifier(AccessibilityID.Export.screen)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

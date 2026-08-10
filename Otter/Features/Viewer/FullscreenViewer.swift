@@ -3,14 +3,19 @@ import SwiftUI
 struct FullscreenViewer: View {
     @Environment(\.displayScale) private var displayScale
     @State private var state: ViewerPresentationState
+    @State private var loadMoreTask: Task<Void, Never>?
+    @State private var infoItem: ViewerItem?
+    @State private var ratingTasks: [UUID: Task<Void, Never>] = [:]
 
     private let actions: ViewerActions
+    private let loadMore: @MainActor @Sendable () async -> [ViewerItem]
 
     init(
         items: [ViewerItem],
         initialAssetID: UUID? = nil,
         initialFrame: MediaFrame? = nil,
         pipeline: any MediaPipelineProtocol,
+        loadMore: @escaping @MainActor @Sendable () async -> [ViewerItem] = { [] },
         actions: ViewerActions
     ) {
         _state = State(
@@ -21,6 +26,7 @@ struct FullscreenViewer: View {
                 pipeline: pipeline
             )
         )
+        self.loadMore = loadMore
         self.actions = actions
     }
 
@@ -44,6 +50,7 @@ struct FullscreenViewer: View {
             .onAppear {
                 state.updateViewport(size: proxy.size, displayScale: displayScale)
                 state.start()
+                loadMoreIfNeeded()
             }
             .onChange(of: proxy.size) { _, size in
                 state.updateViewport(size: size, displayScale: displayScale)
@@ -51,7 +58,13 @@ struct FullscreenViewer: View {
             .onChange(of: displayScale) { _, scale in
                 state.updateViewport(size: proxy.size, displayScale: scale)
             }
+            .onChange(of: state.currentIndex) { _, _ in
+                loadMoreIfNeeded()
+            }
             .onDisappear {
+                loadMoreTask?.cancel()
+                ratingTasks.values.forEach { $0.cancel() }
+                ratingTasks.removeAll()
                 state.stop()
             }
         }
@@ -63,16 +76,20 @@ struct FullscreenViewer: View {
         }
         .background(Color.black)
         .statusBarHidden()
-        .accessibilityIdentifier(ViewerAccessibilityID.screen)
+        .sheet(item: $infoItem) { item in
+            ViewerInfoView(item: item, rating: state.rating(for: item.id))
+        }
     }
 
     private var pages: some View {
         TabView(selection: pageSelection) {
-            ForEach(Array(state.items.enumerated()), id: \.element.id) { index, item in
+            ForEach(state.items.indices, id: \.self) { index in
+                let item = state.items[index]
                 ViewerPage(
                     item: item,
                     pageIndex: index,
                     pageCount: state.items.count,
+                    rating: state.rating(for: item.id),
                     frame: state.frame(for: item.id),
                     resetGeneration: state.resetGeneration,
                     isCurrent: index == state.currentIndex,
@@ -114,6 +131,7 @@ struct FullscreenViewer: View {
                     onPrevious: { state.select(index: state.currentIndex - 1) },
                     onNext: { state.select(index: state.currentIndex + 1) },
                     onFit: { state.requestFit() },
+                    onInfo: { infoItem = item },
                     onDownload: { actions.onExport(item, state.selectedVariant) }
                 )
             }
@@ -176,6 +194,17 @@ struct FullscreenViewer: View {
         )
     }
 
+    private func loadMoreIfNeeded() {
+        guard state.currentIndex >= max(0, state.items.count - 3),
+              loadMoreTask == nil else { return }
+        loadMoreTask = Task {
+            let additional = await loadMore()
+            guard !Task.isCancelled else { return }
+            state.append(additional)
+            loadMoreTask = nil
+        }
+    }
+
     private var variantSelection: Binding<AssetVariant> {
         Binding(
             get: { state.selectedVariant },
@@ -189,7 +218,10 @@ struct FullscreenViewer: View {
             set: { rating in
                 let previous = state.rating(for: item.id)
                 state.setRating(rating, for: item.id)
-                Task {
+                let predecessor = ratingTasks[item.id]
+                ratingTasks[item.id] = Task {
+                    await predecessor?.value
+                    guard !Task.isCancelled else { return }
                     let outcome = await actions.onRate(item, rating)
                     guard state.rating(for: item.id) == rating else { return }
                     switch outcome {
@@ -201,5 +233,45 @@ struct FullscreenViewer: View {
                 }
             }
         )
+    }
+}
+
+private struct ViewerInfoView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let item: ViewerItem
+    let rating: AssetRating?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Photo") {
+                    if let filename = item.descriptor.originalFilename {
+                        LabeledContent("Filename", value: filename)
+                    }
+                    if let width = item.descriptor.originalWidth,
+                       let height = item.descriptor.originalHeight {
+                        LabeledContent("Dimensions", value: "\(width) × \(height)")
+                    }
+                    if let mimeType = item.descriptor.originalMimeType {
+                        LabeledContent("Media Type", value: mimeType)
+                    }
+                    LabeledContent("Edited", value: item.descriptor.hasEdits ? "Yes" : "No")
+                    LabeledContent("Rating", value: ViewerRatingLabel.text(for: rating))
+                }
+
+                Section("Identity") {
+                    LabeledContent("Asset ID", value: item.id.uuidString.lowercased())
+                        .textSelection(.enabled)
+                }
+            }
+            .navigationTitle("Info")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
     }
 }

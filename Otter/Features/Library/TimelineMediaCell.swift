@@ -66,7 +66,6 @@ struct TimelineMediaCell: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityIdentifier(TimelineAccessibilityID.asset(asset.id))
             .task(id: request) {

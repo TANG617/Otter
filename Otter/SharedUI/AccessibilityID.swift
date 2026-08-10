@@ -31,7 +31,7 @@ enum AccessibilityID {
 
     enum Export {
         static let screen = "export.screen"
-        static let variant = "export.variant"
+        static func variant(_ value: ExportVariant) -> String { "export.variant.\(value.rawValue)" }
         static let photos = "export.photos"
         static let files = "export.files"
     }

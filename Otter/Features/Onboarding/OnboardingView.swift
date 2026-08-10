@@ -32,7 +32,6 @@ struct OnboardingView: View {
             .navigationTitle("Connect to Immich")
             .navigationBarTitleDisplayMode(.inline)
             .scrollDismissesKeyboard(.interactively)
-            .accessibilityIdentifier(AccessibilityID.Onboarding.screen)
             .task(id: form.validationRevision) {
                 await validateCurrentRequestIfNeeded()
             }

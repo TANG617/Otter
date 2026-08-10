@@ -2,6 +2,7 @@ import Foundation
 
 enum RatingWriteAvailability: Equatable, Sendable {
     case available
+    case unverified
     case unavailable
 }
 
@@ -20,6 +21,8 @@ actor RatingRepository {
     private let database: AssetDatabase
     private let remote: any AssetRemoteDataSource
     private(set) var writeAvailability: RatingWriteAvailability
+    private var lockedAssets: Set<RatingMutationKey> = []
+    private var waiters: [RatingMutationKey: [CheckedContinuation<Void, Never>]] = [:]
 
     init(
         database: AssetDatabase,
@@ -36,9 +39,12 @@ actor RatingRepository {
         assetID: UUID,
         accountNamespace: UUID
     ) async throws -> RatingMutationResult {
-        guard writeAvailability == .available else {
+        guard writeAvailability != .unavailable else {
             throw RatingRepositoryError.unavailable
         }
+        let mutationKey = RatingMutationKey(accountNamespace: accountNamespace, assetID: assetID)
+        await acquire(mutationKey)
+        defer { release(mutationKey) }
         guard let previous = try database.asset(id: assetID, accountNamespace: accountNamespace) else {
             throw RatingRepositoryError.assetNotFound
         }
@@ -55,6 +61,7 @@ actor RatingRepository {
                 writeAvailability = .unavailable
                 throw RatingRepositoryError.verificationMismatch
             }
+            writeAvailability = .available
             try database.upsertAssets([verified], accountNamespace: accountNamespace)
             return RatingMutationResult(previousRating: previous.rating, asset: verified)
         } catch {
@@ -66,4 +73,27 @@ actor RatingRepository {
             throw error
         }
     }
+
+    private func acquire(_ key: RatingMutationKey) async {
+        guard !lockedAssets.insert(key).inserted else { return }
+        await withCheckedContinuation { continuation in
+            waiters[key, default: []].append(continuation)
+        }
+    }
+
+    private func release(_ key: RatingMutationKey) {
+        guard var queued = waiters[key], !queued.isEmpty else {
+            waiters.removeValue(forKey: key)
+            lockedAssets.remove(key)
+            return
+        }
+        let next = queued.removeFirst()
+        waiters[key] = queued.isEmpty ? nil : queued
+        next.resume()
+    }
+}
+
+private struct RatingMutationKey: Hashable, Sendable {
+    let accountNamespace: UUID
+    let assetID: UUID
 }

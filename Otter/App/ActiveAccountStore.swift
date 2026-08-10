@@ -7,6 +7,13 @@ struct ActiveAccountRecord: Codable, Equatable, Sendable {
     var cacheLimitBytes: Int64
 }
 
+enum AccountNamespacePolicy {
+    static func namespaceForNewConnection(existing: ActiveAccountRecord?) -> UUID {
+        // Server URL alone cannot prove that two API keys belong to the same Immich user.
+        UUID()
+    }
+}
+
 protocol ActiveAccountStoring: Sendable {
     func load() throws -> ActiveAccountRecord?
     func save(_ record: ActiveAccountRecord) throws

@@ -42,7 +42,7 @@ actor WorkScheduler {
     }
 
     private let limits: Limits
-    private var active: [WorkLane: Int] = [:]
+    private var active: [WorkLane: [UUID: MediaPriority]] = [:]
     private var queued: [WorkLane: [Waiter]] = [:]
     private var nextOrder: UInt64 = 0
 
@@ -57,13 +57,17 @@ actor WorkScheduler {
         operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
         try await acquire(id: id, lane: lane, priority: priority)
-        defer { release(lane: lane) }
+        defer { release(id: id, lane: lane) }
         try Task.checkCancellation()
         return try await operation()
     }
 
     func promote(id: UUID, to priority: MediaPriority) {
         for lane in WorkLane.allCases {
+            if let current = active[lane]?[id], current < priority {
+                active[lane]?[id] = priority
+                return
+            }
             guard let index = queued[lane]?.firstIndex(where: { $0.id == id }),
                   let old = queued[lane]?[index], old.priority < priority else { continue }
             queued[lane]?[index] = Waiter(
@@ -96,14 +100,16 @@ actor WorkScheduler {
 
     func stats() -> WorkSchedulerStats {
         .init(
-            activeByLane: active,
+            activeByLane: active.mapValues(\.count),
             queuedByLane: queued.mapValues(\.count)
         )
     }
 
     private func acquire(id: UUID, lane: WorkLane, priority: MediaPriority) async throws {
-        if active[lane, default: 0] < limits.limit(for: lane), queued[lane, default: []].isEmpty {
-            active[lane, default: 0] += 1
+        if active[lane, default: [:]].count < limits.limit(for: lane),
+           queued[lane, default: []].isEmpty,
+           canDispatch(priority) {
+            active[lane, default: [:]][id] = priority
             return
         }
 
@@ -120,13 +126,35 @@ actor WorkScheduler {
         }
     }
 
-    private func release(lane: WorkLane) {
-        active[lane, default: 0] = max(active[lane, default: 0] - 1, 0)
-        guard active[lane, default: 0] < limits.limit(for: lane),
-              !queued[lane, default: []].isEmpty else { return }
-        let waiter = queued[lane]!.removeFirst()
-        active[lane, default: 0] += 1
-        waiter.continuation.resume()
+    private func release(id: UUID, lane: WorkLane) {
+        active[lane]?.removeValue(forKey: id)
+        drainQueues()
+    }
+
+    private func canDispatch(_ priority: MediaPriority) -> Bool {
+        priority > .prefetch || !hasActiveInteractiveWork
+    }
+
+    private var hasActiveInteractiveWork: Bool {
+        active.values.contains { priorities in
+            priorities.values.contains { $0 >= .interactive }
+        }
+    }
+
+    private func drainQueues() {
+        var dispatched = true
+        while dispatched {
+            dispatched = false
+            for lane in WorkLane.allCases {
+                guard active[lane, default: [:]].count < limits.limit(for: lane),
+                      let waiter = queued[lane]?.first,
+                      canDispatch(waiter.priority) else { continue }
+                queued[lane]?.removeFirst()
+                active[lane, default: [:]][waiter.id] = waiter.priority
+                waiter.continuation.resume()
+                dispatched = true
+            }
+        }
     }
 
     private func sortQueue(_ lane: WorkLane) {

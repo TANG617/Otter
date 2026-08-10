@@ -1,5 +1,10 @@
 import SwiftUI
 
+struct TimelineViewerWindow: Sendable {
+    let assets: [TimelineAsset]
+    let loadMore: @MainActor @Sendable () async -> [TimelineAsset]
+}
+
 enum TimelineGridLayout {
     static let spacing: CGFloat = 1
 
@@ -22,7 +27,8 @@ enum TimelineGridLayout {
 
 @MainActor
 struct TimelineView: View {
-    typealias Selection = @MainActor (TimelineAsset, MediaFrame?, [TimelineAsset]) -> Void
+    typealias LoadMore = @MainActor @Sendable () async -> [TimelineAsset]
+    typealias Selection = @MainActor (TimelineAsset, MediaFrame?, TimelineViewerWindow) -> Void
     typealias SettingsAction = @MainActor () -> Void
 
     @State private var state: TimelineState
@@ -30,6 +36,7 @@ struct TimelineView: View {
 
     private let mediaClient: TimelineMediaClient
     private let calendar: Calendar
+    private let updatedAsset: TimelineAsset?
     private let onSelectAsset: Selection
     private let onOpenSettings: SettingsAction
 
@@ -39,6 +46,7 @@ struct TimelineView: View {
         mediaPipeline: any MediaPipelineProtocol,
         pageSize: Int = 200,
         calendar: Calendar = .autoupdatingCurrent,
+        updatedAsset: TimelineAsset? = nil,
         onSelectAsset: @escaping Selection,
         onOpenSettings: @escaping SettingsAction
     ) {
@@ -56,6 +64,7 @@ struct TimelineView: View {
         )
         self.mediaClient = mediaClient
         self.calendar = calendar
+        self.updatedAsset = updatedAsset
         self.onSelectAsset = onSelectAsset
         self.onOpenSettings = onOpenSettings
     }
@@ -66,6 +75,7 @@ struct TimelineView: View {
         mediaClient: TimelineMediaClient,
         pageSize: Int = 200,
         calendar: Calendar = .autoupdatingCurrent,
+        updatedAsset: TimelineAsset? = nil,
         onSelectAsset: @escaping Selection,
         onOpenSettings: @escaping SettingsAction
     ) {
@@ -82,6 +92,7 @@ struct TimelineView: View {
         )
         self.mediaClient = mediaClient
         self.calendar = calendar
+        self.updatedAsset = updatedAsset
         self.onSelectAsset = onSelectAsset
         self.onOpenSettings = onOpenSettings
     }
@@ -100,10 +111,12 @@ struct TimelineView: View {
         .task {
             await state.loadIfNeeded()
         }
+        .onChange(of: updatedAsset) { _, asset in
+            if let asset { state.applyVerifiedUpdate(asset) }
+        }
         .onDisappear {
             prefetchController.cancel()
         }
-        .accessibilityIdentifier(TimelineAccessibilityID.screen)
     }
 
     @ViewBuilder
@@ -171,7 +184,14 @@ struct TimelineView: View {
                                     mediaClient: mediaClient,
                                     calendar: calendar,
                                     onSelect: { asset, frame in
-                                        onSelectAsset(asset, frame, state.assets)
+                                        onSelectAsset(
+                                            asset,
+                                            frame,
+                                            TimelineViewerWindow(assets: state.assets) {
+                                                await state.loadMore()
+                                                return state.assets
+                                            }
+                                        )
                                     },
                                     onVisible: updatePrefetch
                                 )
@@ -195,7 +215,11 @@ struct TimelineView: View {
             Text(section.day, format: .dateTime.weekday(.wide).month(.wide).day().year())
                 .font(.headline)
             Spacer()
-            Text("\(section.assets.count)")
+            Text(
+                section.id == state.sections.last?.id && state.canLoadMore
+                    ? "\(section.assets.count)+"
+                    : "\(section.assets.count)"
+            )
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
         }

@@ -5,6 +5,8 @@ enum AssetStoreError: Error, Equatable {
 }
 
 actor LocalFirstAssetStore: AssetStore {
+    static let fullReconciliationInterval: TimeInterval = 24 * 60 * 60
+
     private let database: AssetDatabase
     private let remote: any AssetRemoteDataSource
     private let now: @Sendable () -> Date
@@ -29,6 +31,7 @@ actor LocalFirstAssetStore: AssetStore {
 
     func refresh(accountNamespace: UUID, mode: AssetRefreshMode) async throws -> AssetRefreshResult {
         let state = try database.syncState(accountNamespace: accountNamespace)
+        let refreshDate = now()
         let updatedAfter: Date?
         let isReconciliation: Bool
         switch mode {
@@ -36,10 +39,13 @@ actor LocalFirstAssetStore: AssetStore {
             updatedAfter = nil
             isReconciliation = true
         case let .incremental(overlap):
-            updatedAfter = state.highestObservedUpdatedAt.map {
+            let reconciliationIsDue = state.lastFullReconciliationAt.map {
+                refreshDate.timeIntervalSince($0) >= Self.fullReconciliationInterval
+            } ?? true
+            isReconciliation = reconciliationIsDue
+            updatedAfter = reconciliationIsDue ? nil : state.highestObservedUpdatedAt.map {
                 $0.addingTimeInterval(-max(0, overlap))
             }
-            isReconciliation = updatedAfter == nil
         }
 
         let generation = isReconciliation
@@ -60,6 +66,7 @@ actor LocalFirstAssetStore: AssetStore {
                 ),
                 accountNamespace: accountNamespace
             )
+            try Task.checkCancellation()
             receivedCount += page.assets.count
             var batch: [TimelineAsset] = []
             batch.reserveCapacity(page.assets.count)
@@ -75,6 +82,7 @@ actor LocalFirstAssetStore: AssetStore {
                 batch.append(asset)
             }
             if !batch.isEmpty {
+                try Task.checkCancellation()
                 try database.upsertAssets(
                     batch,
                     accountNamespace: accountNamespace,
@@ -87,10 +95,11 @@ actor LocalFirstAssetStore: AssetStore {
                 }
             }
             continuation = page.nextContinuation
+            try Task.checkCancellation()
         } while continuation != nil
 
         let deletedCount: Int
-        let completedAt = now()
+        let completedAt = refreshDate
         if let generation {
             deletedCount = try database.deleteAssetsNotSeen(
                 accountNamespace: accountNamespace,

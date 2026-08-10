@@ -5,10 +5,11 @@ import Observation
 @MainActor
 @Observable
 final class ViewerPresentationState {
-    let items: [ViewerItem]
+    private(set) var items: [ViewerItem]
 
     private let pipeline: any MediaPipelineProtocol
     private var frameTasks: [ViewerFrameKey: Task<Void, Never>] = [:]
+    private var edgePrefetch: PrefetchToken?
     private var frames: [ViewerFrameKey: MediaFrame] = [:]
     private var displayedFrames: [UUID: MediaFrame] = [:]
     private var displayedVariants: [UUID: AssetVariant] = [:]
@@ -89,6 +90,17 @@ final class ViewerPresentationState {
         ratings[assetID] = rating
     }
 
+    func append(_ incoming: [ViewerItem]) {
+        var known = Set(items.map(\.id))
+        let additions = incoming.filter { known.insert($0.id).inserted }
+        guard !additions.isEmpty else { return }
+        items.append(contentsOf: additions)
+        for item in additions {
+            if let rating = item.rating { ratings[item.id] = rating }
+        }
+        reconcileRequests()
+    }
+
     func start() {
         guard !isStarted else { return }
         isStarted = true
@@ -98,6 +110,8 @@ final class ViewerPresentationState {
     func stop() {
         isStarted = false
         frameTasks.values.forEach { $0.cancel() }
+        edgePrefetch?.cancel()
+        edgePrefetch = nil
         frameTasks.removeAll()
         activeRequests.removeAll()
     }
@@ -209,12 +223,14 @@ final class ViewerPresentationState {
             activeRequests.removeValue(forKey: key)
             frameTasks.removeValue(forKey: key)?.cancel()
         }
+        prefetchTwoAway()
     }
 
     private func makeRequest(
         for item: ViewerItem,
         isCurrent: Bool,
-        variant: AssetVariant
+        variant: AssetVariant,
+        priority: MediaPriority? = nil
     ) -> MediaRequest {
         let isZoomed = isCurrent && zoomScale > 1.05
         let purpose: MediaPurpose = isCurrent ? (isZoomed ? .zoom : .viewer) : .timeline
@@ -228,13 +244,32 @@ final class ViewerPresentationState {
             qualityPolicy: isCurrent ? .maximum : .balanced,
             dynamicRange: .standard,
             contentMode: .aspectFit,
-            priority: isCurrent ? .interactive : .neighbor
+            priority: priority ?? (isCurrent ? .interactive : .neighbor)
         )
     }
 
+    private func prefetchTwoAway() {
+        edgePrefetch?.cancel()
+        let indices = [currentIndex - 2, currentIndex + 2].filter(items.indices.contains)
+        let requests = indices.map { index in
+            makeRequest(
+                for: items[index],
+                isCurrent: false,
+                variant: .current,
+                priority: .prefetch
+            )
+        }
+        edgePrefetch = requests.isEmpty ? nil : pipeline.prefetch(requests)
+    }
+
     private func receive(_ frame: MediaFrame, key: ViewerFrameKey) {
-        if let existing = frames[key], existing.quality >= frame.quality {
-            return
+        if let existing = frames[key] {
+            if existing.quality > frame.quality { return }
+            if existing.quality == frame.quality,
+               max(existing.surface.pixelWidth, existing.surface.pixelHeight)
+                >= max(frame.surface.pixelWidth, frame.surface.pixelHeight) {
+                return
+            }
         }
         frames[key] = frame
         errors.removeValue(forKey: key)

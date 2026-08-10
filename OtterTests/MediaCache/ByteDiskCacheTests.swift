@@ -85,4 +85,24 @@ struct ByteDiskCacheTests {
         #expect(try await cache.file(for: keyA) == nil)
         #expect(try await cache.file(for: keyB) != nil)
     }
+
+    @Test("Clear removes a leased entry when its final lease is released")
+    func clearDefersLeasedEntryDeletion() async throws {
+        let root = try temporaryTestDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try writeBytes(count: 20, to: root)
+        let cache = try ByteDiskCache(rootDirectory: root.appendingPathComponent("cache"), byteLimit: 1_024)
+        let account = UUID()
+        let key = try mediaTestKey(account: account)
+        try await cache.storeDownloadedFile(at: source, for: key)
+        let lease = try #require(try await cache.acquireFile(for: key))
+
+        try await cache.clear(accountNamespace: account)
+        #expect(FileManager.default.fileExists(atPath: lease.file.fileURL.path))
+        lease.release()
+        for _ in 0..<8 { await Task.yield() }
+
+        #expect(!FileManager.default.fileExists(atPath: lease.file.fileURL.path))
+        #expect(try await cache.file(for: key) == nil)
+    }
 }

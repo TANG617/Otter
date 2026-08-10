@@ -54,3 +54,10 @@ extension XCUIElement {
         return exists
     }
 }
+
+extension XCUIElementQuery {
+    @MainActor
+    func matching(identifierPrefix prefix: String) -> XCUIElementQuery {
+        matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix))
+    }
+}

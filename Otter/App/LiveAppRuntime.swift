@@ -11,6 +11,26 @@ struct LiveAppRuntime: @unchecked Sendable {
     let diskCache: ByteDiskCache
     let mediaPipeline: MediaPipeline
     let exporter: AssetExporter
+    let authenticationInvalidations: AsyncStream<Void>
+}
+
+final class AuthenticationInvalidationSource: @unchecked Sendable {
+    let events: AsyncStream<Void>
+
+    private let lock = NSLock()
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() {
+        let pair = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        events = pair.stream
+        continuation = pair.continuation
+    }
+
+    func invalidate() {
+        _ = lock.withLock { continuation.yield() }
+    }
+
+    deinit { continuation.finish() }
 }
 
 enum LiveAppRuntimeFactory {
@@ -31,14 +51,16 @@ enum LiveAppRuntimeFactory {
         )
         try database.saveAccount(account)
 
+        let authenticationSource = AuthenticationInvalidationSource()
         let client = ImmichClient(
             accountNamespace: record.namespace,
             serverURL: serverURL,
-            apiKey: apiKey
+            apiKey: apiKey,
+            onAuthenticationInvalid: { authenticationSource.invalidate() }
         )
         let assetStore = LocalFirstAssetStore(database: database, remote: client)
         let ratingAvailability: RatingWriteAvailability = record.serverVersion.major == 3
-            ? .available
+            ? .unverified
             : .unavailable
         let ratingRepository = RatingRepository(
             database: database,
@@ -55,7 +77,8 @@ enum LiveAppRuntimeFactory {
         let coordinator = RequestCoordinator(scheduler: scheduler)
         let mediaRequestBuilder = ImmichMediaEndpointBuilder(serverURL: serverURL, apiKey: apiKey)
         let mediaTransport = try URLSessionMediaTransport(
-            stagingDirectory: directories.mediaTransfers
+            stagingDirectory: directories.mediaTransfers,
+            onAuthenticationInvalid: { authenticationSource.invalidate() }
         )
         let profileStore = DatabaseServerMediaProfileStore(database: database)
         let mediaPipeline = MediaPipeline(
@@ -65,14 +88,16 @@ enum LiveAppRuntimeFactory {
             coordinator: coordinator,
             scheduler: scheduler,
             requestBuilder: mediaRequestBuilder,
-            transport: mediaTransport
+            transport: mediaTransport,
+            onAuthenticationInvalid: { authenticationSource.invalidate() }
         )
 
         let exportConfiguration = URLSessionMediaTransport.mediaConfiguration()
         exportConfiguration.httpMaximumConnectionsPerHost = 1
         let exportTransport = try URLSessionMediaTransport(
             configuration: exportConfiguration,
-            stagingDirectory: directories.exportTransfers
+            stagingDirectory: directories.exportTransfers,
+            onAuthenticationInvalid: { authenticationSource.invalidate() }
         )
         let exporter = try AssetExporter(
             requestBuilder: mediaRequestBuilder,
@@ -91,7 +116,8 @@ enum LiveAppRuntimeFactory {
             ratingRepository: ratingRepository,
             diskCache: diskCache,
             mediaPipeline: mediaPipeline,
-            exporter: exporter
+            exporter: exporter,
+            authenticationInvalidations: authenticationSource.events
         )
     }
 }

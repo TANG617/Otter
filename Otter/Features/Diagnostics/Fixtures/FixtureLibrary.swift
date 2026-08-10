@@ -107,6 +107,15 @@ enum FixtureLibraryGenerator {
         ))
     }
 
+    static func index(for id: UUID) -> Int? {
+        let bytes = withUnsafeBytes(of: id.uuid) { Array($0) }
+        let prefix: [UInt8] = [0x4f, 0x74, 0x74, 0x65, 0x72, 0x46, 0x40, 0x00, 0x80, 0x00]
+        guard Array(bytes.prefix(prefix.count)) == prefix else { return nil }
+        return bytes.suffix(6).reduce(0) { partial, byte in
+            (partial << 8) | Int(byte)
+        }
+    }
+
     private static func dimensions(for index: Int) -> (width: Int, height: Int) {
         switch index % 6 {
         case 0:

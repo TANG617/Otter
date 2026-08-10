@@ -138,4 +138,41 @@ struct ViewerPresentationStateTests {
         #expect(!state.isLoadingSelectedVariant)
         state.stop()
     }
+
+    @Test("A larger render replaces an equal-quality frame")
+    func equalQualityPixelUpgrade() async {
+        let item = viewerTestItems(count: 1)[0]
+        let pipeline = ViewerTestPipeline()
+        let state = ViewerPresentationState(items: [item], pipeline: pipeline)
+        state.updateViewport(size: CGSize(width: 390, height: 844), displayScale: 3)
+        state.start()
+
+        pipeline.yield(
+            viewerTestFrame(quality: .fullsize, width: 1_536, height: 1_024),
+            assetID: item.id,
+            variant: .current
+        )
+        await settleViewerTasks()
+        pipeline.yield(
+            viewerTestFrame(quality: .fullsize, width: 3_072, height: 2_048),
+            assetID: item.id,
+            variant: .current
+        )
+        await settleViewerTasks()
+
+        #expect(state.currentFrame?.surface.pixelWidth == 3_072)
+        state.stop()
+    }
+
+    @Test("Viewer window appends pages without duplicating existing assets")
+    func appendWindow() {
+        let initial = viewerTestItems(count: 2)
+        let next = viewerTestItems(count: 4)
+        let state = ViewerPresentationState(items: initial, pipeline: ViewerTestPipeline())
+
+        state.append(next)
+
+        #expect(state.items.map(\.id) == next.map(\.id))
+        #expect(state.items.count == 4)
+    }
 }

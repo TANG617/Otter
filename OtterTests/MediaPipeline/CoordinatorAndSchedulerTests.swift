@@ -132,4 +132,28 @@ struct WorkSchedulerTests {
         _ = try await (blocker.value, low.value, high.value)
         #expect(await order.values == ["blocker", "high", "low"])
     }
+
+    @Test("Active interactive work suppresses new speculative dispatch")
+    func interactiveSuppressesSpeculative() async throws {
+        let scheduler = WorkScheduler(
+            limits: .init(values: [.preview: 1, .thumbnail: 4])
+        )
+        let speculativeStarts = InvocationCounter()
+        let interactive = Task {
+            try await scheduler.run(lane: .preview, priority: .interactive) {
+                try await Task.sleep(for: .milliseconds(120))
+            }
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        let speculative = Task {
+            try await scheduler.run(lane: .thumbnail, priority: .prefetch) {
+                await speculativeStarts.increment()
+            }
+        }
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(await speculativeStarts.value == 0)
+
+        _ = try await (interactive.value, speculative.value)
+        #expect(await speculativeStarts.value == 1)
+    }
 }

@@ -11,7 +11,10 @@ struct ViewerAccessibilityTests {
         #expect(ViewerAccessibilityID.variantPicker == "viewer.variant")
         #expect(ViewerAccessibilityID.rate == "viewer.rate")
         #expect(ViewerAccessibilityID.media(assetID: items[0].id) != ViewerAccessibilityID.media(assetID: items[1].id))
-        #expect(ViewerAccessibilityID.pageLabel(item: items[0], index: 0, count: 2) == "Photo 1, 1 of 2")
+        #expect(
+            ViewerAccessibilityID.pageLabel(item: items[0], rating: .five, index: 0, count: 2)
+                == "Photo, 1 of 2, 5 Stars"
+        )
     }
 
     @Test("Rating labels cover every selectable state")

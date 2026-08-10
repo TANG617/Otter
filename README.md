@@ -6,7 +6,7 @@ Otter is a focused, native iPhone and iPad photo viewer for browsing an Immich l
 
 ## Requirements
 
-- Xcode 16 or newer with an iOS 18+ SDK
+- Xcode 16 or newer with an iOS 18+ SDK. The recorded local verification used Xcode 27.0 beta because it is the only installed toolchain.
 - iPhone or iPad simulator
 - No developer team is required for simulator builds
 
@@ -44,6 +44,14 @@ xcodebuild test \
 
 Fixture UI tests launch the app with `-OTTER_USE_FIXTURES YES` and require no Immich credentials. Live integration tests use `OTTER_TEST_SERVER_URL` and `OTTER_TEST_API_KEY`; when either is absent, those tests skip with an explicit reason.
 
+For a 100,000-asset deterministic stress run:
+
+```sh
+xcrun simctl launch booted com.tang617.otter \
+  -OTTER_USE_FIXTURES YES \
+  -OTTER_FIXTURE_ASSET_COUNT 100000
+```
+
 ## Project regeneration
 
 After editing `project.yml`:
@@ -60,5 +68,4 @@ Copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` only for local b
 
 ## Documentation
 
-Start with [docs/README.md](docs/README.md). The implementation status and known limitations are recorded in [docs/implementation-status.md](docs/implementation-status.md), and the exact Immich surface is recorded in [docs/immich-api-contract.md](docs/immich-api-contract.md).
-
+Start with [docs/README.md](docs/README.md). The verified implementation status and limitations are recorded in [docs/implementation-status.md](docs/implementation-status.md), the measured simulator baseline is in [docs/performance-baseline.md](docs/performance-baseline.md), and the exact Immich surface is recorded in [docs/immich-api-contract.md](docs/immich-api-contract.md).

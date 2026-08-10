@@ -2,9 +2,9 @@ import SwiftUI
 
 @MainActor
 struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
     typealias UpdateCacheLimit = @MainActor (SettingsCacheLimit) -> Void
     typealias PerformAction = @MainActor @Sendable () async -> ActionOutcome
-    typealias OpenDiagnostics = @MainActor () -> Void
 
     @State private var cacheLimit: SettingsCacheLimit
     @State private var actionState: ActionState = .idle
@@ -13,23 +13,29 @@ struct SettingsView: View {
     @State private var confirmation: SettingsConfirmation?
 
     private let snapshot: SettingsSnapshot
+    private let diagnosticsSnapshot: DiagnosticsSnapshot
     private let updateCacheLimit: UpdateCacheLimit
     private let clearCache: PerformAction
-    private let openDiagnostics: OpenDiagnostics
+    private let refreshDiagnostics: DiagnosticsView.Refresh
+    private let copyDiagnosticsSummary: DiagnosticsView.CopySummary
     private let signOut: PerformAction
 
     init(
         snapshot: SettingsSnapshot,
+        diagnosticsSnapshot: DiagnosticsSnapshot,
         updateCacheLimit: @escaping UpdateCacheLimit,
         clearCache: @escaping PerformAction,
-        openDiagnostics: @escaping OpenDiagnostics,
+        refreshDiagnostics: @escaping DiagnosticsView.Refresh,
+        copyDiagnosticsSummary: @escaping DiagnosticsView.CopySummary,
         signOut: @escaping PerformAction
     ) {
         self.snapshot = snapshot
+        self.diagnosticsSnapshot = diagnosticsSnapshot
         _cacheLimit = State(initialValue: snapshot.cacheLimit)
         self.updateCacheLimit = updateCacheLimit
         self.clearCache = clearCache
-        self.openDiagnostics = openDiagnostics
+        self.refreshDiagnostics = refreshDiagnostics
+        self.copyDiagnosticsSummary = copyDiagnosticsSummary
         self.signOut = signOut
     }
 
@@ -45,7 +51,11 @@ struct SettingsView: View {
             .formStyle(.grouped)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .accessibilityIdentifier(AccessibilityID.Settings.screen)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
             .alert(item: $confirmation, content: confirmationAlert)
             .task(id: actionRevision) {
                 await performPendingActionIfNeeded()
@@ -97,7 +107,13 @@ struct SettingsView: View {
 
     private var supportSection: some View {
         Section("Support") {
-            Button(action: openDiagnostics) {
+            NavigationLink {
+                DiagnosticsView(
+                    snapshot: diagnosticsSnapshot,
+                    refresh: refreshDiagnostics,
+                    copySummary: copyDiagnosticsSummary
+                )
+            } label: {
                 HStack {
                     Label("Diagnostics", systemImage: "stethoscope")
                     Spacer()
@@ -108,7 +124,6 @@ struct SettingsView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .accessibilityIdentifier(AccessibilityID.Settings.diagnostics)
 
             LabeledContent("Otter Version", value: snapshot.appVersion)
@@ -212,9 +227,11 @@ struct SettingsView: View {
 #Preview("Fixture Settings") {
     SettingsView(
         snapshot: .fixture,
+        diagnosticsSnapshot: .fixture,
         updateCacheLimit: { _ in },
         clearCache: { .success(message: "Media cache cleared.") },
-        openDiagnostics: {},
+        refreshDiagnostics: { .updated(.fixture) },
+        copyDiagnosticsSummary: { _ in },
         signOut: { .success(message: "Signed out.") }
     )
 }

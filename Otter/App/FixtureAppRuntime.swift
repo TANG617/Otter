@@ -10,34 +10,13 @@ struct FixtureAppRuntime: Sendable {
     let exporter: FixtureAssetExporter
 
     static func make(configuration: FixtureLibraryConfiguration) -> FixtureAppRuntime {
-        let library = FixtureLibraryGenerator.generate(configuration: configuration)
-        let assets = library.items.map { item in
-            TimelineAsset(
-                accountNamespace: library.account.accountNamespace,
-                id: item.id,
-                ownerID: nil,
-                mediaType: .image,
-                localDateTime: item.capturedAt,
-                fileCreatedAt: item.capturedAt,
-                createdAt: item.capturedAt,
-                updatedAt: item.capturedAt,
-                width: item.pixelWidth,
-                height: item.pixelHeight,
-                thumbhash: nil,
-                checksum: "fixture-\(item.ordinal)",
-                originalFileName: "fixture-\(item.ordinal).png",
-                originalMimeType: "image/png",
-                isFavorite: false,
-                isEdited: item.hasEdits,
-                isArchived: false,
-                isTrashed: false,
-                visibility: "timeline",
-                rating: item.rating.flatMap(AssetRating.init(rawValue:))
-            )
-        }
+        let account = FixtureAccount.standard
         return FixtureAppRuntime(
-            accountNamespace: library.account.accountNamespace,
-            assetStore: FixtureAssetStore(assets: assets),
+            accountNamespace: account.accountNamespace,
+            assetStore: FixtureAssetStore(
+                accountNamespace: account.accountNamespace,
+                assetCount: configuration.scale.rawValue
+            ),
             mediaPipeline: FixtureMediaPipeline(),
             exporter: FixtureAssetExporter()
         )
@@ -96,50 +75,55 @@ actor FixtureAssetExporter: AssetExporting {
 }
 
 actor FixtureAssetStore: AssetStore {
-    private var assets: [TimelineAsset]
-    private var indexByID: [UUID: Int]
+    private let accountNamespace: UUID
+    private let assetCount: Int
+    private var overrides: [UUID: TimelineAsset] = [:]
 
-    init(assets: [TimelineAsset]) {
-        self.assets = assets.sorted {
-            if $0.timelineDate != $1.timelineDate { return $0.timelineDate > $1.timelineDate }
-            return $0.id.uuidString.lowercased() > $1.id.uuidString.lowercased()
-        }
-        indexByID = Dictionary(uniqueKeysWithValues: self.assets.enumerated().map { ($0.element.id, $0.offset) })
+    init(accountNamespace: UUID, assetCount: Int) {
+        self.accountNamespace = accountNamespace
+        self.assetCount = max(0, assetCount)
     }
 
     func localPage(_ request: TimelinePageRequest) -> TimelineAssetPage {
+        guard request.accountNamespace == accountNamespace else {
+            return TimelineAssetPage(assets: [], nextCursor: nil)
+        }
         let start: Int
-        if let cursor = request.after, let index = indexByID[cursor.assetID] {
+        if let cursor = request.after,
+           let index = FixtureLibraryGenerator.index(for: cursor.assetID),
+           index < assetCount {
             start = index + 1
         } else {
             start = 0
         }
-        guard start < assets.count else { return .init(assets: [], nextCursor: nil) }
-        let end = min(start + request.limit, assets.count)
-        let page = Array(assets[start..<end])
-        let next = end < assets.count ? page.last.map {
+        guard start < assetCount else { return .init(assets: [], nextCursor: nil) }
+        let end = min(start + request.limit, assetCount)
+        let page = (start..<end).map(asset(at:))
+        let next = end < assetCount ? page.last.map {
             TimelineCursor(date: $0.timelineDate, assetID: $0.id)
         } : nil
         return TimelineAssetPage(assets: page, nextCursor: next)
     }
 
     func localAsset(id: UUID, accountNamespace: UUID) -> TimelineAsset? {
-        guard let index = indexByID[id], assets[index].accountNamespace == accountNamespace else { return nil }
-        return assets[index]
+        guard accountNamespace == self.accountNamespace,
+              let index = FixtureLibraryGenerator.index(for: id),
+              index < assetCount else { return nil }
+        return overrides[id] ?? asset(at: index)
     }
 
     func refresh(accountNamespace: UUID, mode: AssetRefreshMode) -> AssetRefreshResult {
         AssetRefreshResult(
             receivedCount: 0,
-            storedCount: assets.count,
+            storedCount: assetCount,
             deletedCount: 0,
-            highestObservedUpdatedAt: assets.first?.updatedAt
+            highestObservedUpdatedAt: assetCount > 0 ? asset(at: 0).updatedAt : nil
         )
     }
 
     func setRating(_ rating: AssetRating?, assetID: UUID) -> TimelineAsset? {
-        guard let index = indexByID[assetID] else { return nil }
-        let old = assets[index]
+        guard let index = FixtureLibraryGenerator.index(for: assetID), index < assetCount else { return nil }
+        let old = overrides[assetID] ?? asset(at: index)
         let updated = TimelineAsset(
             accountNamespace: old.accountNamespace,
             id: old.id,
@@ -162,14 +146,42 @@ actor FixtureAssetStore: AssetStore {
             visibility: old.visibility,
             rating: rating
         )
-        assets[index] = updated
+        overrides[assetID] = updated
         return updated
+    }
+
+    private func asset(at index: Int) -> TimelineAsset {
+        let item = FixtureLibraryGenerator.makeItem(at: index)
+        return overrides[item.id] ?? TimelineAsset(
+            accountNamespace: accountNamespace,
+            id: item.id,
+            ownerID: nil,
+            mediaType: .image,
+            localDateTime: item.capturedAt,
+            fileCreatedAt: item.capturedAt,
+            createdAt: item.capturedAt,
+            updatedAt: item.capturedAt,
+            width: item.pixelWidth,
+            height: item.pixelHeight,
+            thumbhash: nil,
+            checksum: "fixture-\(item.ordinal)",
+            originalFileName: "fixture-\(item.ordinal).png",
+            originalMimeType: "image/png",
+            isFavorite: false,
+            isEdited: item.hasEdits,
+            isArchived: false,
+            isTrashed: false,
+            visibility: "timeline",
+            rating: item.rating.flatMap(AssetRating.init(rawValue:))
+        )
     }
 }
 
 final class FixtureMediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
     private let cache = NSCache<FixtureRenderKey, RenderSurface>()
-    private let renderQueue = DispatchQueue(label: "com.tang617.otter.fixture-render", qos: .userInitiated)
+    private let scheduler = WorkScheduler(
+        limits: .init(values: [.decode: 1])
+    )
 
     init() {
         cache.countLimit = 256
@@ -200,7 +212,8 @@ final class FixtureMediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                     let surface = try await self.makeSurface(
                         assetID: request.asset.id,
                         variant: request.variant,
-                        pixelSize: key.pixelSize
+                        pixelSize: key.pixelSize,
+                        priority: request.priority
                     )
                     try Task.checkCancellation()
                     self.cache.setObject(surface, forKey: key, cost: surface.estimatedByteCost)
@@ -257,22 +270,16 @@ final class FixtureMediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
     private func makeSurface(
         assetID: UUID,
         variant: AssetVariant,
-        pixelSize: Int
+        pixelSize: Int,
+        priority: MediaPriority
     ) async throws -> RenderSurface {
-        try await withCheckedThrowingContinuation { continuation in
-            renderQueue.async {
-                do {
-                    continuation.resume(
-                        returning: try Self.renderSurface(
-                            assetID: assetID,
-                            variant: variant,
-                            pixelSize: pixelSize
-                        )
-                    )
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await scheduler.run(lane: .decode, priority: priority) {
+            try Task.checkCancellation()
+            return try Self.renderSurface(
+                assetID: assetID,
+                variant: variant,
+                pixelSize: pixelSize
+            )
         }
     }
 

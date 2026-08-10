@@ -6,6 +6,8 @@ import Observation
 final class AppEnvironment {
     let session: AppSession
     let usesFixtures: Bool
+    let fixtureRatingWritesFail: Bool
+    let fixtureCurrentExportAvailable: Bool
     private(set) var liveRuntime: LiveAppRuntime?
     private(set) var fixtureRuntime: FixtureAppRuntime?
 
@@ -14,18 +16,23 @@ final class AppEnvironment {
     private let fileManager: FileManager
     private var pendingConnection: PendingConnection?
     private var activationTask: Task<Void, Never>?
+    private var authenticationTask: Task<Void, Never>?
 
     init(
         session: AppSession,
         usesFixtures: Bool,
         liveRuntime: LiveAppRuntime? = nil,
         fixtureRuntime: FixtureAppRuntime? = nil,
+        fixtureRatingWritesFail: Bool = false,
+        fixtureCurrentExportAvailable: Bool = true,
         accountStore: any ActiveAccountStoring = UserDefaultsActiveAccountStore(),
         keyStore: any APIKeyStoring = KeychainAPIKeyStore(),
         fileManager: FileManager = .default
     ) {
         self.session = session
         self.usesFixtures = usesFixtures
+        self.fixtureRatingWritesFail = fixtureRatingWritesFail
+        self.fixtureCurrentExportAvailable = fixtureCurrentExportAvailable
         self.liveRuntime = liveRuntime
         self.fixtureRuntime = fixtureRuntime
         self.accountStore = accountStore
@@ -49,7 +56,9 @@ final class AppEnvironment {
             return AppEnvironment(
                 session: AppSession(initialState: .fixture),
                 usesFixtures: true,
-                fixtureRuntime: .make(configuration: configuration)
+                fixtureRuntime: .make(configuration: configuration),
+                fixtureRatingWritesFail: environment["OTTER_FIXTURE_RATING_FAILURE"] == "YES",
+                fixtureCurrentExportAvailable: environment["OTTER_FIXTURE_CURRENT_EXPORT_UNAVAILABLE"] != "YES"
             )
         }
 
@@ -66,13 +75,15 @@ final class AppEnvironment {
                 )
             }
             let runtime = try LiveAppRuntimeFactory.make(record: record, apiKey: apiKey)
-            return AppEnvironment(
+            let environment = AppEnvironment(
                 session: AppSession(initialState: .active(accountNamespace: record.namespace)),
                 usesFixtures: false,
                 liveRuntime: runtime,
                 accountStore: accountStore,
                 keyStore: keyStore
             )
+            environment.observeAuthenticationInvalidations(from: runtime)
+            return environment
         } catch {
             return AppEnvironment(
                 session: AppSession(initialState: .authenticationInvalid),
@@ -140,9 +151,9 @@ final class AppEnvironment {
         let keyStore = self.keyStore
         let fileManager = self.fileManager
         let existing = try? accountStore.load()
-        let namespace = existing?.serverURL == pendingConnection.serverURL.url
-            ? existing!.namespace
-            : UUID()
+        // A URL is not an account identity. A fresh namespace prevents a different
+        // API key on the same Immich server from observing the previous account's DB/cache.
+        let namespace = AccountNamespacePolicy.namespaceForNewConnection(existing: existing)
         let record = ActiveAccountRecord(
             namespace: namespace,
             serverURL: pendingConnection.serverURL.url,
@@ -161,12 +172,25 @@ final class AppEnvironment {
                 try keyStore.save(apiKey, accountNamespace: namespace)
                 do {
                     try accountStore.save(record)
+                    if let existing, existing.namespace != namespace {
+                        try keyStore.remove(accountNamespace: existing.namespace)
+                    }
                 } catch {
                     try? keyStore.remove(accountNamespace: namespace)
+                    if let existing {
+                        try? accountStore.save(existing)
+                    } else {
+                        try? accountStore.remove()
+                    }
                     throw error
                 }
                 guard !Task.isCancelled else { return }
+                if let existing, existing.namespace != namespace {
+                    try? runtime.database.deleteAccount(namespace: existing.namespace)
+                    try? await runtime.diskCache.clear(accountNamespace: existing.namespace)
+                }
                 liveRuntime = runtime
+                observeAuthenticationInvalidations(from: runtime)
                 session.transition(to: .active(accountNamespace: namespace))
             } catch {
                 liveRuntime = nil
@@ -200,18 +224,53 @@ final class AppEnvironment {
     func signOut() async -> ActionOutcome {
         activationTask?.cancel()
         activationTask = nil
+        authenticationTask?.cancel()
+        authenticationTask = nil
         let runtime = liveRuntime
         let record = try? accountStore.load()
-        if let runtime {
-            await runtime.mediaPipeline.clearMemory()
-            try? await runtime.mediaPipeline.clearDisk(accountNamespace: runtime.account.namespace)
-            try? runtime.database.deleteAccount(namespace: runtime.account.namespace)
-        }
-        if let record { try? keyStore.remove(accountNamespace: record.namespace) }
-        try? accountStore.remove()
         liveRuntime = nil
         session.transition(to: .signedOut)
-        return .success(message: "Signed out.")
+        await Task.yield()
+        var didFail = false
+        if let runtime {
+            await runtime.mediaPipeline.clearMemory()
+            do { try await runtime.mediaPipeline.clearDisk(accountNamespace: runtime.account.namespace) }
+            catch { didFail = true }
+            do { try runtime.database.deleteAccount(namespace: runtime.account.namespace) }
+            catch { didFail = true }
+        }
+        if let record {
+            do { try keyStore.remove(accountNamespace: record.namespace) }
+            catch { didFail = true }
+        }
+        do { try accountStore.remove() }
+        catch { didFail = true }
+        return didFail
+            ? .failure(PresentationFailure(
+                title: "Signed Out with Cleanup Warning",
+                message: "Otter closed the session, but some local data could not be removed. Try signing out again after restarting the app."
+            ))
+            : .success(message: "Signed out.")
+    }
+
+    private func observeAuthenticationInvalidations(from runtime: LiveAppRuntime) {
+        authenticationTask?.cancel()
+        let namespace = runtime.account.namespace
+        authenticationTask = Task { [weak self] in
+            for await _ in runtime.authenticationInvalidations {
+                guard !Task.isCancelled,
+                      let self,
+                      self.liveRuntime?.account.namespace == namespace else { return }
+                self.liveRuntime = nil
+                self.session.transition(to: .authenticationInvalid)
+                try? self.keyStore.remove(accountNamespace: namespace)
+                try? self.accountStore.remove()
+                await runtime.mediaPipeline.clearMemory()
+                try? await runtime.mediaPipeline.clearDisk(accountNamespace: namespace)
+                try? runtime.database.deleteAccount(namespace: namespace)
+                return
+            }
+        }
     }
 
     func settingsSnapshot() async -> SettingsSnapshot {
@@ -270,6 +329,11 @@ final class AppEnvironment {
         let profile = try? runtime.database.serverMediaProfile(accountNamespace: runtime.account.namespace)
         let assetCount = (try? runtime.database.count(accountNamespace: runtime.account.namespace)) ?? 0
         let ratingAvailability = await runtime.ratingRepository.writeAvailability
+        let ratingStatus: String = switch ratingAvailability {
+        case .available: "Available"
+        case .unverified: "Unverified"
+        case .unavailable: "Unavailable"
+        }
         return DiagnosticsSnapshot(
             appVersion: Self.appVersion,
             buildNumber: Self.buildNumber,
@@ -281,9 +345,9 @@ final class AppEnvironment {
             memoryCacheBytes: Int64(stats?.memory.estimatedCost ?? 0),
             inFlightMediaRequests: (stats?.inFlightByteRequests ?? 0) + (stats?.inFlightRenderRequests ?? 0),
             queuedDecodeCount: stats?.scheduler.queuedByLane[.decode] ?? 0,
-            ratingWriteStatus: ratingAvailability == .available ? "Available" : "Unavailable",
+            ratingWriteStatus: ratingStatus,
             originalPermissionStatus: Self.capabilityText(runtime.capabilities.originalDownload),
-            currentExportStatus: runtime.account.serverVersion?.hasPrefix("3.") == true ? "Available" : "Unverified",
+            currentExportStatus: "Unverified",
             thumbnailObservation: profile?.thumbnail,
             previewObservation: profile?.preview,
             fullsizeObservation: profile?.fullsize,

@@ -48,6 +48,7 @@ actor ByteDiskCache {
     private var byteLimit: Int64
     private var pendingTouches: Set<String> = []
     private var activeLeases: [String: Int] = [:]
+    private var pendingDeletionDigests: Set<String> = []
 
     init(
         rootDirectory: URL,
@@ -181,10 +182,7 @@ actor ByteDiskCache {
                 arguments: [account]
             )
         }
-        for entry in entries where activeLeases[entry.cacheKey, default: 0] == 0 {
-            try? fileManager.removeItem(at: rootDirectory.appendingPathComponent(entry.filePath))
-            try deleteIndexEntry(entry.cacheKey)
-        }
+        try removeEntriesOrDeferLeased(entries)
     }
 
     func remove(accountNamespace: UUID, assetID: UUID) async throws {
@@ -201,19 +199,13 @@ actor ByteDiskCache {
                 arguments: [account, asset]
             )
         }
-        for entry in entries where activeLeases[entry.cacheKey, default: 0] == 0 {
-            try? fileManager.removeItem(at: rootDirectory.appendingPathComponent(entry.filePath))
-            try deleteIndexEntry(entry.cacheKey)
-        }
+        try removeEntriesOrDeferLeased(entries)
     }
 
     func clearAll() async throws {
         try flushTouches()
         let entries = try allEntriesByAccess()
-        for entry in entries where activeLeases[entry.cacheKey, default: 0] == 0 {
-            try? fileManager.removeItem(at: rootDirectory.appendingPathComponent(entry.filePath))
-            try deleteIndexEntry(entry.cacheKey)
-        }
+        try removeEntriesOrDeferLeased(entries)
     }
 
     func setByteLimit(_ value: Int64) async throws {
@@ -257,8 +249,17 @@ actor ByteDiskCache {
 
     private func releaseLease(digest: String) {
         guard let count = activeLeases[digest] else { return }
-        if count <= 1 { activeLeases.removeValue(forKey: digest) }
-        else { activeLeases[digest] = count - 1 }
+        if count > 1 {
+            activeLeases[digest] = count - 1
+            return
+        }
+        activeLeases.removeValue(forKey: digest)
+        guard pendingDeletionDigests.remove(digest) != nil else { return }
+        if let entry = try? fetchEntry(digest) {
+            try? fileManager.removeItem(at: rootDirectory.appendingPathComponent(entry.filePath))
+        }
+        try? deleteIndexEntry(digest)
+        pendingTouches.remove(digest)
     }
 
     private func evictIfNeeded() async throws {
@@ -301,6 +302,33 @@ actor ByteDiskCache {
         try database.write { db in
             try db.execute(sql: "DELETE FROM media_cache_entry WHERE cache_key = ?", arguments: [digest])
         }
+    }
+
+    private func deleteIndexEntries(_ digests: [String]) throws {
+        guard !digests.isEmpty else { return }
+        try database.write { db in
+            for digest in digests {
+                try db.execute(
+                    sql: "DELETE FROM media_cache_entry WHERE cache_key = ?",
+                    arguments: [digest]
+                )
+            }
+        }
+    }
+
+    private func removeEntriesOrDeferLeased(_ entries: [CacheEntry]) throws {
+        var removed: [String] = []
+        removed.reserveCapacity(entries.count)
+        for entry in entries {
+            if activeLeases[entry.cacheKey, default: 0] > 0 {
+                pendingDeletionDigests.insert(entry.cacheKey)
+                continue
+            }
+            try? fileManager.removeItem(at: rootDirectory.appendingPathComponent(entry.filePath))
+            pendingTouches.remove(entry.cacheKey)
+            removed.append(entry.cacheKey)
+        }
+        try deleteIndexEntries(removed)
     }
 
     private func relativeFilePath(for key: ByteCacheKey) -> String {

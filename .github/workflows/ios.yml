@@ -62,6 +62,5 @@ jobs:
             -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5' \
             -derivedDataPath .build/DerivedData \
             -clonedSourcePackagesDirPath .build/SourcePackages \
-            -only-testing:OtterUITests/OtterUITests/testFixtureLaunchesLibraryShell \
+            -only-testing:OtterUITests/OtterUITests/testFixtureTimelineScrollViewerRatingAndExport \
             CODE_SIGNING_ALLOWED=NO
-

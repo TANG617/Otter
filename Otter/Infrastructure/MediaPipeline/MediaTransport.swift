@@ -23,14 +23,17 @@ final class URLSessionMediaTransport: NSObject, MediaTransporting, @unchecked Se
     private let session: URLSession
     private let stagingDirectory: URL
     private let fileManager: FileManager
+    private let onAuthenticationInvalid: @Sendable () -> Void
 
     init(
         configuration: URLSessionConfiguration = URLSessionMediaTransport.mediaConfiguration(),
         stagingDirectory: URL,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        onAuthenticationInvalid: @escaping @Sendable () -> Void = { }
     ) throws {
         self.stagingDirectory = stagingDirectory
         self.fileManager = fileManager
+        self.onAuthenticationInvalid = onAuthenticationInvalid
         try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
         session = URLSession(configuration: configuration)
         super.init()
@@ -41,6 +44,7 @@ final class URLSessionMediaTransport: NSObject, MediaTransporting, @unchecked Se
         let redirectGuard = CrossOriginRedirectGuard()
         let (temporaryURL, response) = try await session.download(for: request, delegate: redirectGuard)
         guard let http = response as? HTTPURLResponse else { throw MediaError.invalidHTTPResponse }
+        if http.statusCode == 401 { onAuthenticationInvalid() }
         guard (200..<300).contains(http.statusCode) else {
             throw MediaError.httpStatus(
                 http.statusCode,
