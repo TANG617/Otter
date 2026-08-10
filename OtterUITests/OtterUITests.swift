@@ -41,7 +41,7 @@ final class OtterUITests: XCTestCase {
 
         let rating = app.buttons["viewer.rate"]
         rating.assertExists()
-        rating.tap()
+        tapCenter(of: rating)
         let fiveStars = app.buttons["5 Stars"]
         fiveStars.assertExists()
         fiveStars.tap()
@@ -65,7 +65,7 @@ final class OtterUITests: XCTestCase {
 
         let rating = app.buttons["viewer.rate"]
         rating.assertExists()
-        rating.tap()
+        tapCenter(of: rating)
         let fiveStars = app.buttons["5 Stars"]
         fiveStars.assertExists()
         fiveStars.tap()
@@ -125,5 +125,13 @@ final class OtterUITests: XCTestCase {
         firstPhoto.assertExists(timeout: 20)
         firstPhoto.tap()
         app.buttons["viewer.close"].assertExists(timeout: 20)
+    }
+
+    @MainActor
+    private func tapCenter(of element: XCUIElement) {
+        // Xcode 16.4/iOS 18.5 can fail Menu's implicit AXScrollToVisible even
+        // when the identified button has a visible frame. A direct center tap
+        // exercises the same control without depending on that XCTest action.
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 }
