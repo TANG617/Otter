@@ -39,6 +39,7 @@ struct SettingsView: View {
                 accountSection
                 cacheSection
                 supportSection
+                aboutSection
                 signOutSection
             }
             .formStyle(.grouped)
@@ -56,6 +57,7 @@ struct SettingsView: View {
         Section("Account") {
             LabeledContent("Account", value: snapshot.accountDisplayName)
             LabeledContent("Server", value: snapshot.serverDisplayName)
+            LabeledContent("Server Version", value: snapshot.serverVersion)
 
             if snapshot.usesFixtures {
                 Label("Fixture Mode", systemImage: "wrench.and.screwdriver")
@@ -122,6 +124,13 @@ struct SettingsView: View {
             .accessibilityIdentifier(AccessibilityID.Settings.signOut)
         } footer: {
             Text("Signing out removes the saved API key and active-account session from this device.")
+        }
+    }
+
+    private var aboutSection: some View {
+        Section("About Otter") {
+            LabeledContent("Tagline", value: "Native Photos for Immich")
+            LabeledContent("Platform", value: "iOS and iPadOS 18+")
         }
     }
 

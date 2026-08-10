@@ -17,6 +17,7 @@ enum SettingsCacheLimit: Int64, CaseIterable, Identifiable, Sendable {
 struct SettingsSnapshot: Equatable, Sendable {
     let accountDisplayName: String
     let serverDisplayName: String
+    let serverVersion: String
     let cacheUsageBytes: Int64
     let cacheLimit: SettingsCacheLimit
     let appVersion: String
@@ -25,6 +26,7 @@ struct SettingsSnapshot: Equatable, Sendable {
     static let fixture = SettingsSnapshot(
         accountDisplayName: FixtureAccount.standard.accountDisplayName,
         serverDisplayName: FixtureAccount.standard.serverURL.host() ?? "Fixture Server",
+        serverVersion: FixtureAccount.standard.serverVersion,
         cacheUsageBytes: 0,
         cacheLimit: .gibibytes2,
         appVersion: "1.0",

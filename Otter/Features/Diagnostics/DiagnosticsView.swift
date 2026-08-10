@@ -26,6 +26,7 @@ struct DiagnosticsView: View {
         NavigationStack {
             Form {
                 connectionSection
+                capabilitiesSection
                 librarySection
                 mediaSection
                 applicationSection
@@ -68,7 +69,20 @@ struct DiagnosticsView: View {
     private var mediaSection: some View {
         Section("Media") {
             LabeledContent("Disk Cache", value: formattedBytes(snapshot.mediaCacheBytes))
+            LabeledContent("Memory Cache", value: formattedBytes(snapshot.memoryCacheBytes))
             LabeledContent("In-flight Requests", value: snapshot.inFlightMediaRequests.formatted())
+            LabeledContent("Queued Decodes", value: snapshot.queuedDecodeCount.formatted())
+            observationRow("Thumbnail", observation: snapshot.thumbnailObservation)
+            observationRow("Preview", observation: snapshot.previewObservation)
+            observationRow("Fullsize", observation: snapshot.fullsizeObservation)
+        }
+    }
+
+    private var capabilitiesSection: some View {
+        Section("Capabilities") {
+            LabeledContent("Rating Write", value: snapshot.ratingWriteStatus)
+            LabeledContent("Original", value: snapshot.originalPermissionStatus)
+            LabeledContent("Current Export", value: snapshot.currentExportStatus)
         }
     }
 
@@ -77,6 +91,13 @@ struct DiagnosticsView: View {
             LabeledContent("Version", value: snapshot.appVersion)
             LabeledContent("Build", value: snapshot.buildNumber)
         }
+    }
+
+    private func observationRow(
+        _ title: String,
+        observation: RepresentationObservation?
+    ) -> some View {
+        LabeledContent(title, value: DiagnosticsSnapshot.observationText(observation))
     }
 
     private var actionsSection: some View {
