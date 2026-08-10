@@ -59,6 +59,6 @@ Ignored local artifacts:
 ## Remaining release gates
 
 1. Run the same flows with Time Profiler, Animation Hitches, Allocations, and Leaks on representative physical iPhone and iPad hardware.
-2. Repeat functional and memory tests on an iOS 18.x runtime; this machine currently has only iOS 27.0.
+2. Repeat performance, memory, and broader iPad tests on an iOS 18.x runtime; GitHub CI already covers the generic build, unit suite, and one key iPhone UI smoke on iOS 18.5, while this machine currently has only iOS 27.0.
 3. Exercise 12 MP/48 MP JPEG, PNG, HEIF, WebP, corrupt payloads, network loss, 429, and constrained-memory paths on device.
 4. Record cold and warm live-server runs on a stable LAN without UI-automation accessibility sampling.

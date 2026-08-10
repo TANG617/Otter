@@ -68,4 +68,4 @@ Copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` only for local b
 
 ## Documentation
 
-Start with [docs/README.md](docs/README.md). The verified implementation status and limitations are recorded in [docs/implementation-status.md](docs/implementation-status.md), the measured simulator baseline is in [docs/performance-baseline.md](docs/performance-baseline.md), and the exact Immich surface is recorded in [docs/immich-api-contract.md](docs/immich-api-contract.md).
+Start with [docs/README.md](docs/README.md). The consolidated output of the 10 August 2026 implementation round—including delivered features, test methods/results, live read-only verification, and performance metrics—is in [docs/execution-report-2026-08-10.md](docs/execution-report-2026-08-10.md). Requirement status is recorded in [docs/implementation-status.md](docs/implementation-status.md), the measured simulator baseline is in [docs/performance-baseline.md](docs/performance-baseline.md), and the exact Immich surface is recorded in [docs/immich-api-contract.md](docs/immich-api-contract.md).
