@@ -29,6 +29,7 @@ struct MediaAssetDescriptor: Codable, Hashable, Identifiable, Sendable {
     let originalWidth: Int?
     let originalHeight: Int?
     let originalMimeType: String?
+    let originalFilename: String?
 
     init(
         accountNamespace: UUID,
@@ -39,7 +40,8 @@ struct MediaAssetDescriptor: Codable, Hashable, Identifiable, Sendable {
         revisions: MediaContentRevisions,
         originalWidth: Int? = nil,
         originalHeight: Int? = nil,
-        originalMimeType: String? = nil
+        originalMimeType: String? = nil,
+        originalFilename: String? = nil
     ) {
         self.accountNamespace = accountNamespace
         self.id = id
@@ -50,5 +52,6 @@ struct MediaAssetDescriptor: Codable, Hashable, Identifiable, Sendable {
         self.originalWidth = originalWidth
         self.originalHeight = originalHeight
         self.originalMimeType = originalMimeType
+        self.originalFilename = originalFilename
     }
 }

@@ -50,8 +50,11 @@
 		7B3FC7E419FB719714CDB7BA /* ByteDiskCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CD841FA2EDBCA834D3DE40 /* ByteDiskCacheTests.swift */; };
 		7ECDB12FF9D7D2DE122DD020 /* MediaRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F10B888FA8CEA6208B47AD1 /* MediaRequest.swift */; };
 		7F8154606130808CFAC24902 /* MediaTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C886F5447312745F4BF919C /* MediaTestSupport.swift */; };
+		81BBFA4189FD28F951BD98E1 /* AssetExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F3F380CF334BF268EEAC01A /* AssetExporterTests.swift */; };
 		88357D6DA3A96AAA39D6EC91 /* AssetDatabaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC68C55D83993F761791F115 /* AssetDatabaseTests.swift */; };
 		8D0F5E06C6EBD021E7048AF2 /* LocalFirstAssetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46FEFE1EAEC4D9F5998DEA53 /* LocalFirstAssetStore.swift */; };
+		9225F426F46873D6AEBD2D50 /* ExportOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D0EF54609766C054A4DCEA /* ExportOptionsView.swift */; };
+		946C804511A58DC53BEA3BF9 /* PhotosExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25A89FE3A38B90EA1326E29A /* PhotosExporter.swift */; };
 		96EE9372059D45EED7343F18 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D661B84B5411B8AEAD02A7A3 /* AppSession.swift */; };
 		9BADD8663BE7094D386AD20F /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 3A3104E766425D5C80532FC7 /* GRDB */; };
 		A2523164722F78BC31667A3A /* RepresentationPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39B213ABE0FF14FA8EA1CDFD /* RepresentationPlanner.swift */; };
@@ -64,6 +67,7 @@
 		BF0C8A9FD02F124AA8E445C8 /* ImmichClientContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4350DAAA34B05ABF1638167 /* ImmichClientContractTests.swift */; };
 		C46DA530A68EEBF283F9544F /* AppRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E7ABAA39223F9DD25FC9364 /* AppRoute.swift */; };
 		C7E7B9A43BF247741F3A3A4E /* RenderMemoryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EB69D82522B130655C45DAA /* RenderMemoryCache.swift */; };
+		C81A7C451A5A5EDCEDACB2F4 /* AssetExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6E085EFF66CF4F11E8B698F /* AssetExporter.swift */; };
 		C98976DF7B3957419EAE080D /* AssetRating.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6D5EBB0BCE6B205D476808 /* AssetRating.swift */; };
 		CD5631955B1149BEA6594706 /* SameOriginRedirectPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE94E7D6BA6E7B716BF7803 /* SameOriginRedirectPolicy.swift */; };
 		CD7B53B8030DE10A99A4B36F /* TestAssetFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AE678727DDDA0F0D8204EF4 /* TestAssetFactory.swift */; };
@@ -111,6 +115,7 @@
 		14BB813EF5D69F4975536F38 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1552E068CB53E30E1BD77E9F /* ImageIODecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageIODecoder.swift; sourceTree = "<group>"; };
 		22C89F99D28EC785E3BBE893 /* Otter.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Otter.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		25A89FE3A38B90EA1326E29A /* PhotosExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosExporter.swift; sourceTree = "<group>"; };
 		28FB2FE8737053A80A0C2756 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		2A0FBEE4E57048D289364194 /* DecoderAndThumbHashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderAndThumbHashTests.swift; sourceTree = "<group>"; };
 		2A2F035FD983D678900884AF /* ServerMediaProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerMediaProfile.swift; sourceTree = "<group>"; };
@@ -153,6 +158,7 @@
 		7A3B695405681D3AEC9C0F55 /* PresentationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresentationState.swift; sourceTree = "<group>"; };
 		7C886F5447312745F4BF919C /* MediaTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTestSupport.swift; sourceTree = "<group>"; };
 		7D52010FBDAA4537E5B26106 /* AssetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetStore.swift; sourceTree = "<group>"; };
+		7F3F380CF334BF268EEAC01A /* AssetExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetExporterTests.swift; sourceTree = "<group>"; };
 		86748E45AE00467872830482 /* RatingRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RatingRepository.swift; sourceTree = "<group>"; };
 		868E3CD2CD00E78AB55352D3 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
 		869E1E2D6CA67BF374EDCC74 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
@@ -160,6 +166,7 @@
 		91CD841FA2EDBCA834D3DE40 /* ByteDiskCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ByteDiskCacheTests.swift; sourceTree = "<group>"; };
 		94AEAB8A58605D3213B37A29 /* ImmichClientError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmichClientError.swift; sourceTree = "<group>"; };
 		97C226F9D95A0D3EF2081B3A /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		99D0EF54609766C054A4DCEA /* ExportOptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportOptionsView.swift; sourceTree = "<group>"; };
 		9B268024F6B9D72B6587F56F /* DiagnosticsModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsModels.swift; sourceTree = "<group>"; };
 		A01F8AE984A68B14F3BB1309 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
 		A1514E90296D453E05DA7901 /* MediaMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaMetrics.swift; sourceTree = "<group>"; };
@@ -192,6 +199,7 @@
 		E79052A9BF033333B41006F9 /* MediaPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPipeline.swift; sourceTree = "<group>"; };
 		EC68C55D83993F761791F115 /* AssetDatabaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetDatabaseTests.swift; sourceTree = "<group>"; };
 		F6C404D4C66BB43D4FECEBAF /* OtterTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OtterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F6E085EFF66CF4F11E8B698F /* AssetExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetExporter.swift; sourceTree = "<group>"; };
 		F83D2B3063D7428187F5C539 /* PixelBucket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelBucket.swift; sourceTree = "<group>"; };
 		F9ABF5B7E74CB205DBDB1665 /* AssetDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetDatabase.swift; sourceTree = "<group>"; };
 		FCF9BB947E50B890F243E701 /* OtterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtterApp.swift; sourceTree = "<group>"; };
@@ -243,6 +251,14 @@
 			path = Immich;
 			sourceTree = "<group>";
 		};
+		0E66748FED12ACAA52AE6927 /* Export */ = {
+			isa = PBXGroup;
+			children = (
+				7F3F380CF334BF268EEAC01A /* AssetExporterTests.swift */,
+			);
+			path = Export;
+			sourceTree = "<group>";
+		};
 		14F459D9FF7A6FEE56E2CEDD /* Features */ = {
 			isa = PBXGroup;
 			children = (
@@ -275,6 +291,7 @@
 			isa = PBXGroup;
 			children = (
 				C0E75214642DB5A65FD889A4 /* Domain */,
+				0E66748FED12ACAA52AE6927 /* Export */,
 				14F459D9FF7A6FEE56E2CEDD /* Features */,
 				23DA9FE54675FBC4DE4D5920 /* Fixtures */,
 				F8AEC5BA6CB05C09E323AD30 /* Immich */,
@@ -444,6 +461,8 @@
 			isa = PBXGroup;
 			children = (
 				B81AE08163C521AF1BCC76D5 /* .gitkeep */,
+				F6E085EFF66CF4F11E8B698F /* AssetExporter.swift */,
+				25A89FE3A38B90EA1326E29A /* PhotosExporter.swift */,
 			);
 			path = Export;
 			sourceTree = "<group>";
@@ -511,6 +530,7 @@
 			isa = PBXGroup;
 			children = (
 				925FAE75CF71C4B394004A9D /* Diagnostics */,
+				DC643ADFBDD4A283F725E4EB /* Export */,
 				DB089934FD27737E6A809BE5 /* Library */,
 				A525FC8F05AB1E992F206BCF /* Onboarding */,
 				49C1784A1A4746CF2B9763E6 /* Settings */,
@@ -558,6 +578,14 @@
 				D4EC60FE3C7126CD2C8C97A5 /* .gitkeep */,
 			);
 			path = Library;
+			sourceTree = "<group>";
+		};
+		DC643ADFBDD4A283F725E4EB /* Export */ = {
+			isa = PBXGroup;
+			children = (
+				99D0EF54609766C054A4DCEA /* ExportOptionsView.swift */,
+			);
+			path = Export;
 			sourceTree = "<group>";
 		};
 		DE3E13901999B6AE4C03147C /* OtterUITests */ = {
@@ -703,6 +731,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				88357D6DA3A96AAA39D6EC91 /* AssetDatabaseTests.swift in Sources */,
+				81BBFA4189FD28F951BD98E1 /* AssetExporterTests.swift in Sources */,
 				A307AA8928BD0A4B17458B8B /* AssetStoreReconciliationTests.swift in Sources */,
 				7B3FC7E419FB719714CDB7BA /* ByteDiskCacheTests.swift in Sources */,
 				D45A6A0D528CE119B76336CB /* CoordinatorAndSchedulerTests.swift in Sources */,
@@ -744,6 +773,7 @@
 				C46DA530A68EEBF283F9544F /* AppRoute.swift in Sources */,
 				96EE9372059D45EED7343F18 /* AppSession.swift in Sources */,
 				47887B7980E2C1D19AA86858 /* AssetDatabase.swift in Sources */,
+				C81A7C451A5A5EDCEDACB2F4 /* AssetExporter.swift in Sources */,
 				C98976DF7B3957419EAE080D /* AssetRating.swift in Sources */,
 				18BF2F099AABA8744B4A16F8 /* AssetStore.swift in Sources */,
 				13AD5D30F9423630389E3A2F /* AssetVariant.swift in Sources */,
@@ -751,6 +781,7 @@
 				25FDF02F6084D9D25ECC6B26 /* CacheKeys.swift in Sources */,
 				4E2913C64817612FA90D8183 /* DiagnosticsModels.swift in Sources */,
 				DEE38F54310124CDA4DF5C4E /* DiagnosticsView.swift in Sources */,
+				9225F426F46873D6AEBD2D50 /* ExportOptionsView.swift in Sources */,
 				3C1CDD579638BD25BACA846D /* FixtureLibrary.swift in Sources */,
 				5433920098A661C041A17E2C /* ImageIODecoder.swift in Sources */,
 				B9D094EBA6E8B014742920B2 /* ImmichClient.swift in Sources */,
@@ -771,6 +802,7 @@
 				02FE8656FA74A2EC0707AEF5 /* OnboardingFormState.swift in Sources */,
 				DD0B6EDA6A696FEFE4E1B5E5 /* OnboardingView.swift in Sources */,
 				23EA6B66AE4F56383ABB69A2 /* OtterApp.swift in Sources */,
+				946C804511A58DC53BEA3BF9 /* PhotosExporter.swift in Sources */,
 				DA626A5A3EFBDEADFF90FFEC /* PixelBucket.swift in Sources */,
 				178633E30B5A1BA1FAFD74D6 /* PrefetchToken.swift in Sources */,
 				73BFD9202ECB214D57504F72 /* PresentationState.swift in Sources */,
