@@ -237,7 +237,7 @@ Preferred direction:
 
 1. bootstrap with stable search/list functionality appropriate to the current server API;
 2. group assets into the Otter timeline locally;
-3. use the stable sync stream where practical for incremental updates;
+3. use the stable sync stream where the selected authentication method supports it; the API-key MVP instead uses overlapping metadata-search refresh and periodic reconciliation because Immich v3.1.0 rejects API keys for sync;
 4. isolate any version-specific fallback in `ImmichCompatibility`.
 
 ---

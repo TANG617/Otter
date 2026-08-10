@@ -1,0 +1,4 @@
+// Copy to Config/Local.xcconfig only for local, non-committed overrides.
+// Never place an Immich API key in an xcconfig, scheme, or source file.
+// PRODUCT_BUNDLE_IDENTIFIER = com.example.otter
+

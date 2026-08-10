@@ -35,6 +35,13 @@ Uploader, backup, automatic local-library synchronization, and offline-library m
 - [Brand and Naming](branding.md) — Otter brand semantics, public naming, engineering naming, and visual direction.
 - [Decision Log](decisions.md) — decisions that should not be silently reversed during implementation.
 
+## Delivery evidence
+
+- [Execution Report — 2026-08-10](execution-report-2026-08-10.md) — the consolidated feature inventory, reproducible test methods, results, live read-only verification, performance figures, audit fixes, and remaining release gates for this implementation round.
+- [Implementation Status](implementation-status.md) — requirement-by-requirement completion and limitations.
+- [Performance Baseline](performance-baseline.md) — detailed ETTrace and memgraph interpretation.
+- [Immich API Contract](immich-api-contract.md) — the exact public Immich surface and fallback semantics.
+
 ## Requirement language
 
 The words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are used intentionally in these documents. A MUST-level rule should only be changed by updating the relevant documentation and recording the change in the decision log.

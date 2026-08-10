@@ -8,7 +8,7 @@ A change is allowed, but it should update the relevant design document and add a
 
 ## D-001 — Product is a viewer, not a full Immich client
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 Otter's core scope is:
@@ -23,7 +23,7 @@ Uploader, camera-roll backup, automatic synchronization of local originals, and 
 
 ## D-002 — Native iOS/iPadOS first
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 - Target iPhone and iPad.
@@ -36,7 +36,7 @@ Uploader, camera-roll backup, automatic synchronization of local originals, and 
 
 ## D-003 — Arbitrary Immich servers must be supported
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 The released client must work with user-owned Immich servers with different versions and media derivative configuration.
@@ -54,7 +54,7 @@ The developer's server is a test target and may be adjusted for experiments, but
 
 ## D-004 — Do not build the primary timeline on Immich Internal timeline APIs
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 Immich currently marks `/timeline/*` endpoints as Internal. Otter should obtain asset metadata through stable supported APIs and build timeline grouping locally.
@@ -67,7 +67,7 @@ The stable sync stream may be used for incremental metadata updates where approp
 
 ## D-005 — Current Version is the default viewer rendition
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 Viewer defaults to:
@@ -90,7 +90,7 @@ Current and Original are first-class `AssetVariant`s with separate cache identit
 
 ## D-006 — Download asks which rendition to export
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 Download/export must let the user choose:
@@ -106,7 +106,7 @@ Original should preserve source bytes where the server API provides the original
 
 ## D-007 — No offline guarantee
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 Otter's media disk cache is disposable performance infrastructure.
@@ -119,7 +119,7 @@ There is no promise that a photo, album, or time range is available offline unle
 
 ## D-008 — Default disk media cache is 2 GiB and user configurable
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 Default:
@@ -138,7 +138,7 @@ Cache identity is isolated by server/account, but the storage budget is global a
 
 ## D-009 — First release does not require full HDR fidelity
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 Initial image presentation targets SDR / Display P3.
@@ -151,7 +151,7 @@ Full HDR/gain-map fidelity is a later phase and may require original HEIC/HEIF r
 
 ## D-010 — MediaPipeline is a first-class subsystem
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 The product must not reduce image loading to `URL -> UIImage` inside views.
@@ -175,7 +175,7 @@ The product must not reduce image loading to `URL -> UIImage` inside views.
 
 ## D-011 — Byte cache and render cache have distinct identities
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 One server preview file may produce multiple decoded target sizes.
@@ -192,7 +192,7 @@ Network representation sharing and bitmap sharing are coordinated separately.
 
 ## D-012 — Shared media work uses consumer leases
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 Multiple cells/viewers/prefetchers may depend on the same request.
@@ -205,7 +205,7 @@ A prefetched task promoted to visible/interactive should normally reuse progress
 
 ## D-013 — Main-thread image decoding is prohibited
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 Heavy decode/downsample work must execute on a controlled non-main decode queue/executor.
@@ -218,7 +218,7 @@ ImageIO/`CGImageSource` is the initial baseline decoder. Large original media re
 
 ## D-014 — UIKit is allowed when it improves the viewer
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 Otter is SwiftUI-first for normal product UI, but “native” does not mean “SwiftUI-only.”
@@ -229,7 +229,7 @@ A UIKit-backed fullscreen viewer is acceptable if it provides better control ove
 
 ## D-015 — Performance must be measured, not assumed
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 Pipeline and UI performance should be evaluated using Instruments and structured signposts/metrics.
@@ -249,7 +249,7 @@ Optimizations without measurement should not override simpler correct behavior.
 
 ## D-016 — Product and repository name is Otter
 
-**Date:** 2026-08-10  
+**Date:** 2026-08-10
 **Status:** Accepted
 
 Primary brand:
@@ -270,16 +270,147 @@ Functional engineering modules should generally use names such as `MediaPipeline
 
 ---
 
+## D-017 — MVP authentication uses an Immich API key
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+Onboarding asks for an Immich Server URL and API key. The key is stored with device-only Keychain accessibility. Email/password and OAuth login are not implemented in the MVP.
+
+The key is sent only through the `x-api-key` header and never appears in a URL, log, cache key, fixture, or error description.
+
+---
+
+## D-018 — MVP has one active account with namespaced identity
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+The MVP has one active account and no complex account switcher. The account record owns a persistent random UUID namespace mapped to the normalized server and validated user. It is not derived from the API key.
+
+Database, byte cache, render cache, invalidation, and clear operations remain account-scoped so a future multi-account UI does not require an identity migration.
+
+---
+
+## D-019 — GRDB and SQLite own local metadata persistence
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+Use GRDB through Swift Package Manager for the metadata database and cache index. GRDB is the only initial third-party runtime dependency. A minimal direct SQLite3 wrapper is allowed only if the environment cannot resolve GRDB.
+
+---
+
+## D-020 — Start with one application module and two test targets
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+The initial project has one native iOS application target, one unit test target, and one UI test target. Architectural boundaries are directories and type dependencies, not a speculative collection of framework or package targets.
+
+---
+
+## D-021 — Timeline starts SwiftUI-first
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+The initial timeline uses lazy SwiftUI sections/grid with stable identity and paged data. A `UICollectionView` replacement requires focused performance evidence showing that the SwiftUI container cannot meet the viewer budget.
+
+---
+
+## D-022 — Fullscreen viewer combines SwiftUI and UIKit
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+SwiftUI owns the fullscreen shell and overlays. A reusable UIKit surface owns horizontal paging and each page's `UIScrollView` zoom/pan interaction.
+
+---
+
+## D-023 — Export uses foreground file-backed downloads
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+Current and Original exports use explicit foreground, file-backed `URLSession` download work. The MVP does not persist a background-transfer system. Current and Original are always user choices and are never silently substituted.
+
+---
+
+## D-024 — Release networking keeps platform trust and narrow ATS policy
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+Release builds do not disable TLS verification, trust arbitrary self-signed certificates, or set global `NSAllowsArbitraryLoads`. Local-network HTTP uses only the narrow Apple `NSAllowsLocalNetworking` exception and local-network usage disclosure.
+
+“Arbitrary user-owned server” therefore means an API-compatible server reachable under the platform's release trust and transport rules.
+
+---
+
+## D-025 — Product and build defaults are centralized
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+- Product and scheme: `Otter`
+- Bundle identifier default: `com.tang617.otter`
+- Deployment target: iOS/iPadOS 18.0
+- Device families: iPhone and iPad
+- Simulator builds require no Developer Team
+- No macOS or Mac Catalyst target
+
+---
+
+## D-026 — API-key refresh uses search reconciliation, not sync stream
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+Immich v3.1.0 labels `POST /sync/stream` Stable but explicitly rejects API-key authentication in the server implementation. That conflicts with combining the MVP API-key decision and an always-on sync-stream requirement.
+
+The MVP therefore uses stable metadata search for bootstrap, an overlapping `updatedAfter` polling window for ordinary refresh, and periodic full reconciliation for deletes and offset-pagination gaps. The client exposes sync-stream capability as unavailable rather than attempting a known 403 path or claiming real-time sync.
+
+If a future accepted authentication decision adds session authentication, the stable sync stream may be integrated behind the existing store boundary.
+
+---
+
+## D-027 — Rating write is a verified optional capability
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+In Immich v3.1.0 the rating field supports `-1`, `1...5`, and `null`, but the only public write operation (`PUT /assets/{id}`) is Deprecated and has no public Stable replacement.
+
+Otter isolates that operation as an optional capability. Optimistic UI always rolls back on failure, and a successful response is followed by an asset read to verify the persisted rating. Read-only external libraries and credentials without `asset.update` surface a precise unavailable state. Rating never changes media content identity.
+
+---
+
+## D-028 — Timeline date and ordering are deterministic
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+Timeline grouping uses Immich `localDateTime` first. It falls back to `fileCreatedAt`, then `createdAt`. Assets sort by the selected date descending and asset UUID string descending as a stable tie-breaker. Grouping is performed in the data layer using the user's current calendar/time-zone semantics.
+
+---
+
+## D-029 — Media invalidation and clearing are account-scoped
+
+**Date:** 2026-08-10
+**Status:** Accepted
+
+The documented example `invalidate(assetID:)` is insufficient because asset UUIDs can collide across accounts. The implemented pipeline accepts the account namespace together with the asset ID. Disk clearing has explicit account-scoped and global operations; sign out always clears session/render state and does not expose the previous account's frames.
+
+---
+
 # Open decisions
 
 The following are intentionally not fixed yet:
 
-1. Exact timeline container implementation (`LazyVGrid` vs. `UICollectionView`) after profiling.
-2. Exact local metadata database technology (for example GRDB/SQLite vs. another lightweight persistence approach).
-3. Exact decode concurrency and cache memory budget per device class.
-4. Authentication UX and API-key provisioning flow.
-5. Whether rating filtering/search ships in the first public release or immediately after the viewer MVP.
-6. Video and Live Photo phase ordering.
-7. HDR source detection and rendering strategy.
-8. Deep-zoom strategy beyond a bounded 4K/6K render.
-9. Final App Store subtitle and trademark/name clearance for public commercial release.
+1. Exact decode concurrency and cache memory budget per physical device class after profiling. Initial values remain one decode and approximately 128 MiB.
+2. Whether rating filtering/search ships in the first public release or immediately after the viewer MVP.
+3. Video and Live Photo phase ordering.
+4. HDR source detection and rendering strategy.
+5. Deep-zoom strategy beyond a bounded 4K/6K render.
+6. Final App Store subtitle and trademark/name clearance for public commercial release.

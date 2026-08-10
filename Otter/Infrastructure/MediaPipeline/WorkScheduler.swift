@@ -1,0 +1,166 @@
+import Foundation
+
+enum WorkLane: String, CaseIterable, Hashable, Sendable {
+    case metadata
+    case thumbnail
+    case preview
+    case fullsize
+    case export
+    case diskIO
+    case decode
+    case thumbHash
+}
+
+struct WorkSchedulerStats: Equatable, Sendable {
+    let activeByLane: [WorkLane: Int]
+    let queuedByLane: [WorkLane: Int]
+}
+
+actor WorkScheduler {
+    struct Limits: Sendable {
+        var values: [WorkLane: Int]
+
+        static let conservative = Limits(values: [
+            .metadata: 4,
+            .thumbnail: 4,
+            .preview: 2,
+            .fullsize: 1,
+            .export: 1,
+            .diskIO: 2,
+            .decode: 1,
+            .thumbHash: 1,
+        ])
+
+        func limit(for lane: WorkLane) -> Int { max(values[lane, default: 1], 1) }
+    }
+
+    private struct Waiter {
+        let id: UUID
+        let priority: MediaPriority
+        let order: UInt64
+        let continuation: CheckedContinuation<Void, Error>
+    }
+
+    private let limits: Limits
+    private var active: [WorkLane: [UUID: MediaPriority]] = [:]
+    private var queued: [WorkLane: [Waiter]] = [:]
+    private var nextOrder: UInt64 = 0
+
+    init(limits: Limits = .conservative) {
+        self.limits = limits
+    }
+
+    func run<Value: Sendable>(
+        id: UUID = UUID(),
+        lane: WorkLane,
+        priority: MediaPriority,
+        operation: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        try await acquire(id: id, lane: lane, priority: priority)
+        defer { release(id: id, lane: lane) }
+        try Task.checkCancellation()
+        return try await operation()
+    }
+
+    func promote(id: UUID, to priority: MediaPriority) {
+        for lane in WorkLane.allCases {
+            if let current = active[lane]?[id], current < priority {
+                active[lane]?[id] = priority
+                return
+            }
+            guard let index = queued[lane]?.firstIndex(where: { $0.id == id }),
+                  let old = queued[lane]?[index], old.priority < priority else { continue }
+            queued[lane]?[index] = Waiter(
+                id: old.id,
+                priority: priority,
+                order: old.order,
+                continuation: old.continuation
+            )
+            sortQueue(lane)
+            return
+        }
+    }
+
+    func cancelQueued(id: UUID) {
+        for lane in WorkLane.allCases {
+            guard let index = queued[lane]?.firstIndex(where: { $0.id == id }) else { continue }
+            let waiter = queued[lane]!.remove(at: index)
+            waiter.continuation.resume(throwing: CancellationError())
+            return
+        }
+    }
+
+    func cancelQueuedPrefetch() {
+        for lane in WorkLane.allCases {
+            let cancelled = queued[lane, default: []].filter { $0.priority <= .prefetch }
+            queued[lane]?.removeAll { $0.priority <= .prefetch }
+            cancelled.forEach { $0.continuation.resume(throwing: CancellationError()) }
+        }
+    }
+
+    func stats() -> WorkSchedulerStats {
+        .init(
+            activeByLane: active.mapValues(\.count),
+            queuedByLane: queued.mapValues(\.count)
+        )
+    }
+
+    private func acquire(id: UUID, lane: WorkLane, priority: MediaPriority) async throws {
+        if active[lane, default: [:]].count < limits.limit(for: lane),
+           queued[lane, default: []].isEmpty,
+           canDispatch(priority) {
+            active[lane, default: [:]][id] = priority
+            return
+        }
+
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                nextOrder &+= 1
+                queued[lane, default: []].append(
+                    Waiter(id: id, priority: priority, order: nextOrder, continuation: continuation)
+                )
+                sortQueue(lane)
+            }
+        } onCancel: {
+            Task { await self.cancelQueued(id: id) }
+        }
+    }
+
+    private func release(id: UUID, lane: WorkLane) {
+        active[lane]?.removeValue(forKey: id)
+        drainQueues()
+    }
+
+    private func canDispatch(_ priority: MediaPriority) -> Bool {
+        priority > .prefetch || !hasActiveInteractiveWork
+    }
+
+    private var hasActiveInteractiveWork: Bool {
+        active.values.contains { priorities in
+            priorities.values.contains { $0 >= .interactive }
+        }
+    }
+
+    private func drainQueues() {
+        var dispatched = true
+        while dispatched {
+            dispatched = false
+            for lane in WorkLane.allCases {
+                guard active[lane, default: [:]].count < limits.limit(for: lane),
+                      let waiter = queued[lane]?.first,
+                      canDispatch(waiter.priority) else { continue }
+                queued[lane]?.removeFirst()
+                active[lane, default: [:]][waiter.id] = waiter.priority
+                waiter.continuation.resume()
+                dispatched = true
+            }
+        }
+    }
+
+    private func sortQueue(_ lane: WorkLane) {
+        queued[lane]?.sort {
+            if $0.priority == $1.priority { return $0.order < $1.order }
+            return $0.priority > $1.priority
+        }
+    }
+}
