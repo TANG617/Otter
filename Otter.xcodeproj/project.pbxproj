@@ -20,6 +20,7 @@
 		199E3DB782A4681AA5A77AFA /* KeychainAPIKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702ADBFB1741C5211F51315A /* KeychainAPIKeyStore.swift */; };
 		1B9E15F17EFAC6EFF43C7F23 /* TimelinePrefetch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CC82794641C3769F4D0EFB1 /* TimelinePrefetch.swift */; };
 		23EA6B66AE4F56383ABB69A2 /* OtterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCF9BB947E50B890F243E701 /* OtterApp.swift */; };
+		24CB10662B6C253775DEFFC5 /* FixtureAppRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4824F28D0E2DCD84B8236D6A /* FixtureAppRuntime.swift */; };
 		25FDF02F6084D9D25ECC6B26 /* CacheKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A68DFFCE42C5CE3A887910 /* CacheKeys.swift */; };
 		2782A1BBE57A5A5B9CA7D0B6 /* TimelineClients.swift in Sources */ = {isa = PBXBuildFile; fileRef = F992B9D64BDBA0A23D172121 /* TimelineClients.swift */; };
 		2A0AC9F6DC7A1D5259DF1079 /* LiveServerConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02101195F508B7389B0D387A /* LiveServerConfigurationTests.swift */; };
@@ -74,6 +75,7 @@
 		A307AA8928BD0A4B17458B8B /* AssetStoreReconciliationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA08510A9A3983C9BE15A77 /* AssetStoreReconciliationTests.swift */; };
 		A9E7BC9070B15E58ED62C954 /* SettingsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 480499EB92CC6C556237A18F /* SettingsModels.swift */; };
 		ACADB573B73BADF2D02C78B8 /* LiveServerReadOnlyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D7FB634CA41244309D4C7E4 /* LiveServerReadOnlyClient.swift */; };
+		B19F64ECDF8A8551FF458F88 /* FixtureAppRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A810AC1DAD2F52246A313B /* FixtureAppRuntimeTests.swift */; };
 		B1E28FB03E67E64BAE72647F /* KeychainAPIKeyStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67ADCEED836F7E38A4AC5E91 /* KeychainAPIKeyStoreTests.swift */; };
 		B40B186212962C083C9BDF2F /* PerformanceTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 060D48DFAEFE442CFD5DF0CA /* PerformanceTestSupport.swift */; };
 		B57CDB4F857E239A3AE25008 /* MediaFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = 763814122033EDF5CECE01FE /* MediaFrame.swift */; };
@@ -167,6 +169,7 @@
 		47AC50949951E035B7317BAA /* AssetVariant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetVariant.swift; sourceTree = "<group>"; };
 		47DF35A1188C411D968BA3B8 /* ServerURLAndMediaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerURLAndMediaTests.swift; sourceTree = "<group>"; };
 		480499EB92CC6C556237A18F /* SettingsModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsModels.swift; sourceTree = "<group>"; };
+		4824F28D0E2DCD84B8236D6A /* FixtureAppRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixtureAppRuntime.swift; sourceTree = "<group>"; };
 		4EE94E7D6BA6E7B716BF7803 /* SameOriginRedirectPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SameOriginRedirectPolicy.swift; sourceTree = "<group>"; };
 		4FE51F51559C07184B752747 /* FixtureLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixtureLibraryTests.swift; sourceTree = "<group>"; };
 		55EB30666ADF77E8096A3A0E /* ThumbHashDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbHashDecoder.swift; sourceTree = "<group>"; };
@@ -239,6 +242,7 @@
 		F2394CC4F924BFA9C873CDB4 /* TimelineMediaCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineMediaCell.swift; sourceTree = "<group>"; };
 		F6C404D4C66BB43D4FECEBAF /* OtterTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OtterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F6E085EFF66CF4F11E8B698F /* AssetExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetExporter.swift; sourceTree = "<group>"; };
+		F7A810AC1DAD2F52246A313B /* FixtureAppRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixtureAppRuntimeTests.swift; sourceTree = "<group>"; };
 		F83D2B3063D7428187F5C539 /* PixelBucket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelBucket.swift; sourceTree = "<group>"; };
 		F992B9D64BDBA0A23D172121 /* TimelineClients.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineClients.swift; sourceTree = "<group>"; };
 		F9ABF5B7E74CB205DBDB1665 /* AssetDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetDatabase.swift; sourceTree = "<group>"; };
@@ -321,6 +325,7 @@
 			isa = PBXGroup;
 			children = (
 				025F7D8C5FA3B92873D33A3D /* ActiveAccountStoreTests.swift */,
+				F7A810AC1DAD2F52246A313B /* FixtureAppRuntimeTests.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -405,6 +410,7 @@
 				6D937094819AFE51D0ADFA9F /* AppRootView.swift */,
 				6E7ABAA39223F9DD25FC9364 /* AppRoute.swift */,
 				D661B84B5411B8AEAD02A7A3 /* AppSession.swift */,
+				4824F28D0E2DCD84B8236D6A /* FixtureAppRuntime.swift */,
 				7FCB9A2C3990B703C2031D28 /* LiveAppRuntime.swift */,
 				FCF9BB947E50B890F243E701 /* OtterApp.swift */,
 			);
@@ -821,6 +827,7 @@
 				7B3FC7E419FB719714CDB7BA /* ByteDiskCacheTests.swift in Sources */,
 				D45A6A0D528CE119B76336CB /* CoordinatorAndSchedulerTests.swift in Sources */,
 				57FF451B95E47D0DF8DCB6B7 /* DecoderAndThumbHashTests.swift in Sources */,
+				B19F64ECDF8A8551FF458F88 /* FixtureAppRuntimeTests.swift in Sources */,
 				2CB741ACBE4CCE4969DA9735 /* FixtureLibraryTests.swift in Sources */,
 				BF0C8A9FD02F124AA8E445C8 /* ImmichClientContractTests.swift in Sources */,
 				B1E28FB03E67E64BAE72647F /* KeychainAPIKeyStoreTests.swift in Sources */,
@@ -879,6 +886,7 @@
 				4E2913C64817612FA90D8183 /* DiagnosticsModels.swift in Sources */,
 				DEE38F54310124CDA4DF5C4E /* DiagnosticsView.swift in Sources */,
 				9225F426F46873D6AEBD2D50 /* ExportOptionsView.swift in Sources */,
+				24CB10662B6C253775DEFFC5 /* FixtureAppRuntime.swift in Sources */,
 				3C1CDD579638BD25BACA846D /* FixtureLibrary.swift in Sources */,
 				5433920098A661C041A17E2C /* ImageIODecoder.swift in Sources */,
 				B9D094EBA6E8B014742920B2 /* ImmichClient.swift in Sources */,

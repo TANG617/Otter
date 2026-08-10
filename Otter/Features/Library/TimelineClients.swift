@@ -87,7 +87,8 @@ enum TimelineMediaDemand {
             ),
             originalWidth: asset.width,
             originalHeight: asset.height,
-            originalMimeType: asset.originalMimeType
+            originalMimeType: asset.originalMimeType,
+            originalFilename: asset.originalFileName
         )
     }
 

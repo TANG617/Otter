@@ -7,6 +7,7 @@ final class AppEnvironment {
     let session: AppSession
     let usesFixtures: Bool
     private(set) var liveRuntime: LiveAppRuntime?
+    private(set) var fixtureRuntime: FixtureAppRuntime?
 
     private let accountStore: any ActiveAccountStoring
     private let keyStore: any APIKeyStoring
@@ -18,6 +19,7 @@ final class AppEnvironment {
         session: AppSession,
         usesFixtures: Bool,
         liveRuntime: LiveAppRuntime? = nil,
+        fixtureRuntime: FixtureAppRuntime? = nil,
         accountStore: any ActiveAccountStoring = UserDefaultsActiveAccountStore(),
         keyStore: any APIKeyStoring = KeychainAPIKeyStore(),
         fileManager: FileManager = .default
@@ -25,6 +27,7 @@ final class AppEnvironment {
         self.session = session
         self.usesFixtures = usesFixtures
         self.liveRuntime = liveRuntime
+        self.fixtureRuntime = fixtureRuntime
         self.accountStore = accountStore
         self.keyStore = keyStore
         self.fileManager = fileManager
@@ -39,7 +42,15 @@ final class AppEnvironment {
         }
         let usesFixtures = fixtureArgumentValue == "YES" || environment["OTTER_USE_FIXTURES"] == "YES"
         if usesFixtures {
-            return AppEnvironment(session: AppSession(initialState: .fixture), usesFixtures: true)
+            let configuration = FixtureLibraryConfiguration.resolved(
+                arguments: arguments,
+                environment: environment
+            )
+            return AppEnvironment(
+                session: AppSession(initialState: .fixture),
+                usesFixtures: true,
+                fixtureRuntime: .make(configuration: configuration)
+            )
         }
 
         let accountStore = UserDefaultsActiveAccountStore()
