@@ -100,6 +100,12 @@ actor AssetExporter: AssetExporting {
         let downloaded: TransportedMediaFile
         do {
             downloaded = try await transport.download(request)
+        } catch let error as MediaTransportHTTPError {
+            switch error.statusCode {
+            case 403: throw AssetExportError.permissionDenied
+            case 404 where variant == .current: throw AssetExportError.currentUnavailable
+            default: throw AssetExportError.transport
+            }
         } catch let error as MediaError {
             switch error {
             case .httpStatus(403, _): throw AssetExportError.permissionDenied

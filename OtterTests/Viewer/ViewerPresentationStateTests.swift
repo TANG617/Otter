@@ -175,4 +175,46 @@ struct ViewerPresentationStateTests {
         #expect(state.items.map(\.id) == next.map(\.id))
         #expect(state.items.count == 4)
     }
+
+    @Test("Placeholder remains visible on failure and Retry starts a fresh real request")
+    func placeholderFailureAndRetry() async {
+        let item = viewerTestItems(count: 1)[0]
+        let pipeline = ViewerTestPipeline()
+        let state = ViewerPresentationState(items: [item], pipeline: pipeline)
+        state.updateViewport(size: CGSize(width: 390, height: 844), displayScale: 3)
+        state.start()
+
+        pipeline.yield(
+            viewerTestFrame(quality: .placeholder),
+            assetID: item.id,
+            variant: .current
+        )
+        pipeline.fail(
+            MediaError.httpStatus(404, retryAfter: nil),
+            assetID: item.id,
+            variant: .current
+        )
+
+        #expect(await waitForViewerCondition { state.currentErrorMessage != nil })
+        #expect(state.currentFrame?.quality == .placeholder)
+        #expect(!state.isLoadingSelectedVariant)
+
+        state.retryCurrent()
+        #expect(pipeline.retries() == 1)
+        #expect(pipeline.allRequests().count == 2)
+        #expect(state.isLoadingSelectedVariant)
+
+        pipeline.yield(
+            viewerTestFrame(quality: .preview, isFinal: true),
+            assetID: item.id,
+            variant: .current
+        )
+        pipeline.finish(assetID: item.id, variant: .current)
+
+        #expect(await waitForViewerCondition {
+            state.currentFrame?.quality == .preview && state.currentErrorMessage == nil
+        })
+        #expect(!state.isLoadingSelectedVariant)
+        state.stop()
+    }
 }

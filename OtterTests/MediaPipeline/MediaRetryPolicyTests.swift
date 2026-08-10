@@ -18,4 +18,13 @@ struct MediaRetryPolicyTests {
         #expect(policy.delay(for: CancellationError(), attempt: 0, priority: .interactive) == nil)
         #expect(policy.delay(for: URLError(.notConnectedToInternet), attempt: 0, priority: .interactive) == nil)
     }
+
+    @Test("Known unsupported representation does not retry")
+    func unsupportedRepresentation() {
+        #expect(policy.delay(
+            for: MediaError.unavailableRepresentation(.fullsize),
+            attempt: 0,
+            priority: .interactive
+        ) == nil)
+    }
 }

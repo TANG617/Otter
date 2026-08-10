@@ -28,7 +28,11 @@ struct MediaRetryPolicy: Sendable {
                 return retryAfter ?? 1
             case let .httpStatus(status, _) where (500...599).contains(status):
                 return min(pow(2, Double(attempt)) * 0.25, 1)
-            case .cancelled, .httpStatus(401, _), .httpStatus(403, _), .httpStatus(404, _):
+            case .cancelled,
+                 .unavailableRepresentation,
+                 .httpStatus(401, _),
+                 .httpStatus(403, _),
+                 .httpStatus(404, _):
                 return nil
             default:
                 return attempt == 0 ? 0.25 : nil

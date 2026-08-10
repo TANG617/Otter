@@ -126,6 +126,38 @@ actor RequestCoordinator {
         }
     }
 
+    func cancelAndAwait(accountNamespace: UUID) async {
+        let byteKeys = byteRequests.keys.filter { $0.accountNamespace == accountNamespace }
+        let byteTasks = byteKeys.compactMap { key -> Task<CachedByteFile, Error>? in
+            let task = byteRequests.removeValue(forKey: key)?.task
+            task?.cancel()
+            return task
+        }
+        let renderKeys = renderRequests.keys.filter {
+            $0.byteKey.accountNamespace == accountNamespace
+        }
+        let renderTasks = renderKeys.compactMap { key -> Task<RenderSurface, Error>? in
+            let task = renderRequests.removeValue(forKey: key)?.task
+            task?.cancel()
+            return task
+        }
+
+        for task in byteTasks { _ = await task.result }
+        for task in renderTasks { _ = await task.result }
+    }
+
+    func cancelAndAwaitAll() async {
+        let byteTasks = byteRequests.values.map(\.task)
+        let renderTasks = renderRequests.values.map(\.task)
+        byteRequests.removeAll()
+        renderRequests.removeAll()
+        byteTasks.forEach { $0.cancel() }
+        renderTasks.forEach { $0.cancel() }
+
+        for task in byteTasks { _ = await task.result }
+        for task in renderTasks { _ = await task.result }
+    }
+
     func stats() -> (byteRequests: Int, renderRequests: Int) {
         (byteRequests.count, renderRequests.count)
     }

@@ -2,6 +2,29 @@ import Foundation
 import Testing
 @testable import Otter
 
+private final class MediaTransportSuccessURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "image/jpeg"]
+              ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data([0x01, 0x02, 0x03]))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() { }
+}
+
 @Suite("Immich URL, authentication, and media endpoints")
 struct ServerURLAndMediaTests {
     @Test("Normalization canonicalizes origin and optional API suffix")
@@ -79,5 +102,67 @@ struct ServerURLAndMediaTests {
         #expect(throws: RedirectPolicyError.crossOrigin) {
             try policy.authorizedRequest(crossOrigin, apiKey: key, includeCredential: true)
         }
+    }
+
+    @Test("Media redirects reject cross-origin and fullsize-to-Original substitution")
+    func mediaRedirectPolicy() throws {
+        let fullsize = try #require(
+            URL(string: "https://photos.example.com/api/assets/asset/thumbnail?size=fullsize&edited=true")
+        )
+        let preview = try #require(
+            URL(string: "https://photos.example.com/api/assets/asset/thumbnail?size=preview&edited=true")
+        )
+        let original = try #require(
+            URL(string: "https://photos.example.com/api/assets/asset/original?edited=true")
+        )
+        let crossOrigin = try #require(URL(string: "https://cdn.example.com/media"))
+
+        #expect(MediaRedirectPolicy.sameOrigin(fullsize, preview))
+        #expect(!MediaRedirectPolicy.sameOrigin(fullsize, crossOrigin))
+        #expect(MediaRedirectPolicy.shouldRejectOriginalSubstitution(
+            initialURL: fullsize,
+            destinationURL: original
+        ))
+        #expect(!MediaRedirectPolicy.shouldRejectOriginalSubstitution(
+            initialURL: preview,
+            destinationURL: original
+        ))
+
+        let metadata = MediaResponseMetadata(
+            initialURL: fullsize,
+            finalURL: fullsize,
+            redirects: [
+                MediaRedirectHop(
+                    sourceURL: fullsize,
+                    destinationURL: original,
+                    statusCode: 302,
+                    disposition: .rejectedOriginalSubstitution
+                ),
+            ]
+        )
+        #expect(metadata.wasRedirected)
+        #expect(metadata.nominalFullsizeResolvedToOriginal)
+    }
+
+    @Test("Media transport exposes initial and final response URL metadata")
+    func mediaTransportResponseMetadata() async throws {
+        let root = try temporaryTestDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MediaTransportSuccessURLProtocol.self]
+        let transport = try URLSessionMediaTransport(
+            configuration: configuration,
+            stagingDirectory: root.appendingPathComponent("staging")
+        )
+        let url = try #require(
+            URL(string: "https://photos.example.com/api/assets/asset/thumbnail?size=fullsize&edited=true")
+        )
+
+        let downloaded = try await transport.download(URLRequest(url: url))
+        defer { try? FileManager.default.removeItem(at: downloaded.fileURL) }
+
+        #expect(downloaded.responseMetadata?.initialURL == url)
+        #expect(downloaded.responseMetadata?.finalURL == url)
+        #expect(downloaded.responseMetadata?.wasRedirected == false)
     }
 }

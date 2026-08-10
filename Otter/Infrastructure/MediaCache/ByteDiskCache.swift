@@ -8,6 +8,14 @@ struct ByteDiskCacheStats: Equatable, Sendable {
     let activeLeaseCount: Int
 }
 
+struct ByteDiskCacheTestHooks: Sendable {
+    var beforeIndexCommit: (@Sendable (ByteCacheKey) async -> Void)?
+
+    init(beforeIndexCommit: (@Sendable (ByteCacheKey) async -> Void)? = nil) {
+        self.beforeIndexCommit = beforeIndexCommit
+    }
+}
+
 struct CachedByteFile: Sendable {
     let key: ByteCacheKey
     let fileURL: URL
@@ -45,6 +53,7 @@ actor ByteDiskCache {
     private let rootDirectory: URL
     private let database: DatabaseQueue
     private let fileManager: FileManager
+    private let testHooks: ByteDiskCacheTestHooks
     private var byteLimit: Int64
     private var pendingTouches: Set<String> = []
     private var activeLeases: [String: Int] = [:]
@@ -53,11 +62,13 @@ actor ByteDiskCache {
     init(
         rootDirectory: URL,
         byteLimit: Int64 = ByteDiskCache.defaultByteLimit,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        testHooks: ByteDiskCacheTestHooks = .init()
     ) throws {
         self.rootDirectory = rootDirectory
         self.byteLimit = max(byteLimit, 0)
         self.fileManager = fileManager
+        self.testHooks = testHooks
         try fileManager.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
         database = try DatabaseQueue(path: rootDirectory.appendingPathComponent("cache.sqlite").path)
         try Self.migrate(database)
@@ -107,48 +118,63 @@ actor ByteDiskCache {
         let directory = destination.deletingLastPathComponent()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
+        var createdDestination = false
         if !fileManager.fileExists(atPath: destination.path) {
             let staging = directory.appendingPathComponent(".\(key.digest).\(UUID().uuidString).tmp")
             do {
                 try fileManager.copyItem(at: sourceURL, to: staging)
                 try fileManager.moveItem(at: staging, to: destination)
+                createdDestination = true
             } catch {
                 try? fileManager.removeItem(at: staging)
                 throw error
             }
         }
 
-        let now = Date().timeIntervalSince1970
-        try await database.write { db in
-            try db.execute(
-                sql: """
-                INSERT INTO media_cache_entry
-                    (cache_key, account_namespace, asset_id, variant, representation, file_path,
-                     byte_count, content_type, pixel_width, pixel_height, created_at, last_access_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(cache_key) DO UPDATE SET
-                    file_path = excluded.file_path,
-                    byte_count = excluded.byte_count,
-                    content_type = excluded.content_type,
-                    pixel_width = excluded.pixel_width,
-                    pixel_height = excluded.pixel_height,
-                    last_access_at = excluded.last_access_at
-                """,
-                arguments: [
-                    key.digest,
-                    key.accountNamespace.uuidString.lowercased(),
-                    key.assetID.uuidString.lowercased(),
-                    key.variant.rawValue,
-                    key.representation.rawValue,
-                    relativePath,
-                    byteCount,
-                    mimeType,
-                    pixelWidth,
-                    pixelHeight,
-                    now,
-                    now,
-                ]
-            )
+        do {
+            await testHooks.beforeIndexCommit?(key)
+            try Task.checkCancellation()
+            let now = Date().timeIntervalSince1970
+            try await database.write { db in
+                try db.execute(
+                    sql: """
+                    INSERT INTO media_cache_entry
+                        (cache_key, account_namespace, asset_id, variant, representation, file_path,
+                         byte_count, content_type, pixel_width, pixel_height, created_at, last_access_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(cache_key) DO UPDATE SET
+                        file_path = excluded.file_path,
+                        byte_count = excluded.byte_count,
+                        content_type = excluded.content_type,
+                        pixel_width = excluded.pixel_width,
+                        pixel_height = excluded.pixel_height,
+                        last_access_at = excluded.last_access_at
+                    """,
+                    arguments: [
+                        key.digest,
+                        key.accountNamespace.uuidString.lowercased(),
+                        key.assetID.uuidString.lowercased(),
+                        key.variant.rawValue,
+                        key.representation.rawValue,
+                        relativePath,
+                        byteCount,
+                        mimeType,
+                        pixelWidth,
+                        pixelHeight,
+                        now,
+                        now,
+                    ]
+                )
+            }
+            try Task.checkCancellation()
+        } catch is CancellationError {
+            try? fileManager.removeItem(at: destination)
+            try? deleteIndexEntry(key.digest)
+            pendingTouches.remove(key.digest)
+            throw CancellationError()
+        } catch {
+            if createdDestination { try? fileManager.removeItem(at: destination) }
+            throw error
         }
         activeLeases[key.digest, default: 0] += 1
         defer { releaseLease(digest: key.digest) }

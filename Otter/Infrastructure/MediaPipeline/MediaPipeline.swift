@@ -6,7 +6,8 @@ protocol ServerMediaProfileProviding: Sendable {
         _ observation: RepresentationObservation,
         for representation: RemoteRepresentation,
         accountNamespace: UUID
-    ) async
+    ) async throws
+    func markFullsizeUnsupported(accountNamespace: UUID) async throws
 }
 
 actor InMemoryServerMediaProfileStore: ServerMediaProfileProviding {
@@ -24,15 +25,48 @@ actor InMemoryServerMediaProfileStore: ServerMediaProfileProviding {
         _ observation: RepresentationObservation,
         for representation: RemoteRepresentation,
         accountNamespace: UUID
-    ) {
+    ) throws {
         var profile = profiles[accountNamespace] ?? .init()
-        switch representation {
-        case .thumbnail: profile.thumbnail = observation
-        case .preview: profile.preview = observation
-        case .fullsize: profile.fullsize = observation
-        case .original: break
-        }
+        profile.merge(observation, for: representation)
         profiles[accountNamespace] = profile
+    }
+
+    func markFullsizeUnsupported(accountNamespace: UUID) throws {
+        var profile = profiles[accountNamespace] ?? .init()
+        profile.markFullsizeUnsupported()
+        profiles[accountNamespace] = profile
+    }
+}
+
+// AsyncThrowingStream creation is synchronous, so an NSLock-backed epoch is the
+// narrow boundary that can tag a request before its producer Task is scheduled.
+// Every mutable field is accessed under the lock.
+private final class AccountRequestEpochs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [UUID: UInt64] = [:]
+
+    func capture(for accountNamespace: UUID) -> UInt64 {
+        lock.withLock {
+            if let epoch = values[accountNamespace] { return epoch }
+            values[accountNamespace] = 0
+            return 0
+        }
+    }
+
+    func advance(for accountNamespace: UUID) {
+        lock.withLock { values[accountNamespace, default: 0] &+= 1 }
+    }
+
+    func advanceAll() {
+        lock.withLock {
+            for accountNamespace in Array(values.keys) {
+                values[accountNamespace, default: 0] &+= 1
+            }
+        }
+    }
+
+    func isCurrent(_ epoch: UInt64, for accountNamespace: UUID) -> Bool {
+        lock.withLock { values[accountNamespace, default: 0] == epoch }
     }
 }
 
@@ -48,11 +82,18 @@ struct CompleteMediaPipelineStats: Sendable {
 protocol MediaPipelineProtocol: Sendable {
     func peek(_ request: MediaRequest) -> MediaFrame?
     func frames(for request: MediaRequest) -> AsyncThrowingStream<MediaFrame, Error>
+    func retryFrames(for request: MediaRequest) -> AsyncThrowingStream<MediaFrame, Error>
     func prefetch(_ requests: [MediaRequest]) -> PrefetchToken
     func invalidate(accountNamespace: UUID, assetID: UUID) async
     func clearMemory() async
     func clearDisk(accountNamespace: UUID) async throws
     func clearAllDisk() async throws
+}
+
+extension MediaPipelineProtocol {
+    func retryFrames(for request: MediaRequest) -> AsyncThrowingStream<MediaFrame, Error> {
+        frames(for: request)
+    }
 }
 
 final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
@@ -71,6 +112,7 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
     private let metrics: MediaMetrics
     private let fileManager: FileManager
     private let onAuthenticationInvalid: @Sendable () -> Void
+    private let requestEpochs = AccountRequestEpochs()
 
     init(
         planner: RepresentationPlanner = .init(),
@@ -142,10 +184,40 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
     }
 
     func frames(for request: MediaRequest) -> AsyncThrowingStream<MediaFrame, Error> {
+        makeFramesStream(
+            for: request,
+            epoch: requestEpochs.capture(for: request.asset.accountNamespace),
+            clearNegativeCacheBeforeStart: false
+        )
+    }
+
+    func retryFrames(for request: MediaRequest) -> AsyncThrowingStream<MediaFrame, Error> {
+        makeFramesStream(
+            for: request,
+            epoch: requestEpochs.capture(for: request.asset.accountNamespace),
+            clearNegativeCacheBeforeStart: true
+        )
+    }
+
+    private func makeFramesStream(
+        for request: MediaRequest,
+        epoch: UInt64,
+        clearNegativeCacheBeforeStart: Bool
+    ) -> AsyncThrowingStream<MediaFrame, Error> {
         AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
-                    try await self.produceFrames(for: request, continuation: continuation)
+                    if clearNegativeCacheBeforeStart {
+                        await self.negativeCache.remove(
+                            accountNamespace: request.asset.accountNamespace,
+                            assetID: request.asset.id
+                        )
+                    }
+                    try await self.produceFrames(
+                        for: request,
+                        epoch: epoch,
+                        continuation: continuation
+                    )
                     continuation.finish()
                 } catch is CancellationError {
                     await self.metrics.emit(.requestCancelled, priority: request.priority)
@@ -163,12 +235,19 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
     }
 
     func prefetch(_ requests: [MediaRequest]) -> PrefetchToken {
+        let taggedRequests = requests.map {
+            ($0, requestEpochs.capture(for: $0.asset.accountNamespace))
+        }
         let task = Task {
             await withTaskGroup(of: Void.self) { group in
-                for request in requests {
+                for (request, epoch) in taggedRequests {
                     group.addTask {
                         do {
-                            for try await _ in self.frames(for: request) {
+                            for try await _ in self.makeFramesStream(
+                                for: request,
+                                epoch: epoch,
+                                clearNegativeCacheBeforeStart: false
+                            ) {
                                 if Task.isCancelled { break }
                             }
                         } catch { }
@@ -191,12 +270,16 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
     func handleMemoryPressure() async { memoryCache.removeAll(keepingPinned: true) }
 
     func clearDisk(accountNamespace: UUID) async throws {
-        await coordinator.invalidate(accountNamespace: accountNamespace)
-        await Task.yield()
+        requestEpochs.advance(for: accountNamespace)
+        await coordinator.cancelAndAwait(accountNamespace: accountNamespace)
         try await diskCache.clear(accountNamespace: accountNamespace)
     }
 
-    func clearAllDisk() async throws { try await diskCache.clearAll() }
+    func clearAllDisk() async throws {
+        requestEpochs.advanceAll()
+        await coordinator.cancelAndAwaitAll()
+        try await diskCache.clearAll()
+    }
 
     func stats() async throws -> CompleteMediaPipelineStats {
         let pipelineStats = await metrics.stats()
@@ -215,13 +298,16 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
 
     private func produceFrames(
         for request: MediaRequest,
+        epoch: UInt64,
         continuation: AsyncThrowingStream<MediaFrame, Error>.Continuation
     ) async throws {
+        try checkEpoch(epoch, for: request.asset.accountNamespace)
         let profile = await profileStore.profile(accountNamespace: request.asset.accountNamespace)
         let plan = try planner.plan(for: request, profile: profile)
         await metrics.emit(.requestCreated, priority: request.priority)
-        var bestFrame: MediaFrame?
+        var bestRealFrame: MediaFrame?
         var lastRecoverableError: Error?
+        var deliveredAnyFrame = false
 
         if request.variant == .current, let hash = request.asset.thumbhash {
             if let placeholder = try? await scheduler.run(
@@ -229,6 +315,7 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                 priority: .speculative,
                 operation: { try self.thumbHashDecoder.decode(base64: hash) }
             ) {
+                try checkEpoch(epoch, for: request.asset.accountNamespace)
                 let frame = MediaFrame(
                     surface: placeholder,
                     quality: .placeholder,
@@ -236,7 +323,7 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                     isFinalForCurrentDemand: false
                 )
                 if case .terminated = continuation.yield(frame) { return }
-                bestFrame = frame
+                deliveredAnyFrame = true
                 await metrics.emit(.firstFrameDelivered, priority: request.priority)
             }
         }
@@ -245,12 +332,24 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
             try Task.checkCancellation()
             let candidate: MediaFrame
             do {
-                candidate = try await frame(for: step, request: request, allowCorruptRecovery: true)
+                candidate = try await frame(
+                    for: step,
+                    request: request,
+                    epoch: epoch,
+                    allowCorruptRecovery: true
+                )
             } catch let error as MediaError where Self.isRepresentationLocal(error) {
                 lastRecoverableError = error
                 continue
+            } catch {
+                if bestRealFrame != nil {
+                    lastRecoverableError = error
+                    break
+                }
+                throw error
             }
-            guard bestFrame == nil || bestFrame!.quality < candidate.quality else { continue }
+            guard candidate.containsRealMedia else { continue }
+            guard bestRealFrame == nil || bestRealFrame!.quality < candidate.quality else { continue }
             let delivered = MediaFrame(
                 surface: candidate.surface,
                 quality: candidate.quality,
@@ -258,23 +357,27 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                 isFinalForCurrentDemand: index == plan.indices.last
             )
             if case .terminated = continuation.yield(delivered) { return }
-            if bestFrame == nil { await metrics.emit(.firstFrameDelivered, priority: request.priority) }
-            bestFrame = delivered
+            if !deliveredAnyFrame {
+                await metrics.emit(.firstFrameDelivered, priority: request.priority)
+            }
+            deliveredAnyFrame = true
+            bestRealFrame = delivered
             if delivered.isFinalForCurrentDemand {
                 await metrics.emit(.finalFrameDelivered, priority: request.priority)
             }
         }
-        if let bestFrame, !bestFrame.isFinalForCurrentDemand {
+        if let bestRealFrame, !bestRealFrame.isFinalForCurrentDemand {
             let final = MediaFrame(
-                surface: bestFrame.surface,
-                quality: bestFrame.quality,
-                source: bestFrame.source,
+                surface: bestRealFrame.surface,
+                quality: bestRealFrame.quality,
+                source: bestRealFrame.source,
                 isFinalForCurrentDemand: true
             )
             if case .terminated = continuation.yield(final) { return }
             await metrics.emit(.finalFrameDelivered, priority: request.priority)
-        } else if bestFrame == nil, let lastRecoverableError {
+        } else if bestRealFrame == nil {
             throw lastRecoverableError
+                ?? MediaError.unavailableRepresentation(plan.last?.representation ?? .preview)
         }
     }
 
@@ -290,8 +393,10 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
     private func frame(
         for step: RepresentationPlanStep,
         request: MediaRequest,
+        epoch: UInt64,
         allowCorruptRecovery: Bool
     ) async throws -> MediaFrame {
+        try checkEpoch(epoch, for: request.asset.accountNamespace)
         let byteKey = try ByteCacheKey(
             asset: request.asset,
             variant: request.variant,
@@ -320,12 +425,18 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
             let bytes = if let diskHit {
                 diskHit
             } else {
-                try await fetchBytes(for: byteKey, asset: request.asset, priority: request.priority)
+                try await fetchBytes(
+                    for: byteKey,
+                    asset: request.asset,
+                    priority: request.priority,
+                    epoch: epoch
+                )
             }
             let surface = try await render(
                 bytes: bytes,
                 renderKey: renderKey,
-                priority: request.priority
+                priority: request.priority,
+                epoch: epoch
             )
             return .init(
                 surface: surface,
@@ -337,16 +448,24 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
             where allowCorruptRecovery && diskHit != nil
                 && (error == .corruptMedia || error == .cacheEntryMissing) {
             try await diskCache.remove(byteKey)
-            return try await frame(for: step, request: request, allowCorruptRecovery: false)
+            return try await frame(
+                for: step,
+                request: request,
+                epoch: epoch,
+                allowCorruptRecovery: false
+            )
         }
     }
 
     private func fetchBytes(
         for key: ByteCacheKey,
         asset: MediaAssetDescriptor,
-        priority: MediaPriority
+        priority: MediaPriority,
+        epoch: UInt64
     ) async throws -> CachedByteFile {
+        try checkEpoch(epoch, for: key.accountNamespace)
         let lease = await coordinator.leaseBytes(for: key, priority: priority) { workID in
+            try self.checkEpoch(epoch, for: key.accountNamespace)
             if let cached = try await self.diskCache.file(for: key) { return cached }
             let request = try self.requestBuilder.urlRequest(
                 for: asset,
@@ -360,14 +479,37 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                     var effectivePriority = await self.coordinator.effectiveBytePriority(for: key) ?? priority
                     await self.metrics.emit(.networkStart, key: key, priority: effectivePriority)
                     await self.metrics.emit(.queueWait, key: key, priority: effectivePriority)
-                    let downloaded = try await self.scheduler.run(
-                        id: workID,
-                        lane: self.lane(for: key.representation),
-                        priority: effectivePriority,
-                        operation: { try await self.transport.download(request) }
-                    )
+                    let downloaded: TransportedMediaFile
+                    do {
+                        downloaded = try await self.scheduler.run(
+                            id: workID,
+                            lane: self.lane(for: key.representation),
+                            priority: effectivePriority,
+                            operation: { try await self.transport.download(request) }
+                        )
+                    } catch let error as MediaTransportHTTPError {
+                        if key.representation == .fullsize,
+                           error.responseMetadata.nominalFullsizeResolvedToOriginal {
+                            try await self.profileStore.markFullsizeUnsupported(
+                                accountNamespace: key.accountNamespace
+                            )
+                            throw MediaError.unavailableRepresentation(.fullsize)
+                        }
+                        throw MediaError.httpStatus(
+                            error.statusCode,
+                            retryAfter: error.retryAfter
+                        )
+                    }
                     defer { try? self.fileManager.removeItem(at: downloaded.fileURL) }
                     try Task.checkCancellation()
+                    try self.checkEpoch(epoch, for: key.accountNamespace)
+                    if key.representation == .fullsize,
+                       downloaded.responseMetadata?.nominalFullsizeResolvedToOriginal == true {
+                        try await self.profileStore.markFullsizeUnsupported(
+                            accountNamespace: key.accountNamespace
+                        )
+                        throw MediaError.unavailableRepresentation(.fullsize)
+                    }
                     effectivePriority = await self.coordinator.effectiveBytePriority(for: key) ?? effectivePriority
                     let properties = try await self.scheduler.run(
                         id: workID,
@@ -376,6 +518,7 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                         operation: { try await self.decoder.inspect(fileURL: downloaded.fileURL, mimeType: downloaded.mimeType) }
                     )
                     try Task.checkCancellation()
+                    try self.checkEpoch(epoch, for: key.accountNamespace)
                     effectivePriority = await self.coordinator.effectiveBytePriority(for: key) ?? effectivePriority
                     let observation = RepresentationObservation(
                         mimeType: properties.mimeType ?? "application/octet-stream",
@@ -383,11 +526,12 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                         byteCount: downloaded.byteCount.map(Int.init),
                         redirectsCrossOrigin: false
                     )
-                    await self.profileStore.record(
+                    try await self.profileStore.record(
                         observation,
                         for: key.representation,
                         accountNamespace: key.accountNamespace
                     )
+                    try self.checkEpoch(epoch, for: key.accountNamespace)
                     let cached = try await self.scheduler.run(
                         id: workID,
                         lane: .diskIO,
@@ -402,6 +546,7 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                             )
                         }
                     )
+                    try self.checkEpoch(epoch, for: key.accountNamespace)
                     await self.metrics.emit(.diskCommit, key: key, priority: effectivePriority, byteCount: cached.byteCount)
                     await self.metrics.emit(.networkEnd, key: key, priority: effectivePriority, byteCount: cached.byteCount)
                     return cached
@@ -425,10 +570,13 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
     private func render(
         bytes: CachedByteFile,
         renderKey: RenderCacheKey,
-        priority: MediaPriority
+        priority: MediaPriority,
+        epoch: UInt64
     ) async throws -> RenderSurface {
+        try checkEpoch(epoch, for: bytes.key.accountNamespace)
         if let cached = memoryCache.value(for: renderKey) { return cached }
         let lease = await coordinator.leaseRender(for: renderKey, priority: priority) { workID in
+            try self.checkEpoch(epoch, for: bytes.key.accountNamespace)
             guard let fileLease = try await self.diskCache.acquireFile(for: bytes.key) else {
                 throw MediaError.cacheEntryMissing
             }
@@ -445,6 +593,7 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                     )
                 }
             )
+            try self.checkEpoch(epoch, for: bytes.key.accountNamespace)
             await self.metrics.emit(.decodeEnd, key: bytes.key, priority: priority)
             self.memoryCache.insert(surface, for: renderKey)
             try? await self.diskCache.trimIfNeeded()
@@ -452,6 +601,12 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
         }
         defer { lease.release() }
         return try await lease.value()
+    }
+
+    private func checkEpoch(_ epoch: UInt64, for accountNamespace: UUID) throws {
+        guard requestEpochs.isCurrent(epoch, for: accountNamespace) else {
+            throw CancellationError()
+        }
     }
 
     private func lane(for representation: RemoteRepresentation) -> WorkLane {

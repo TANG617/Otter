@@ -16,6 +16,7 @@ final class ViewerPresentationState {
     private var pendingFrames: [ViewerFrameKey: MediaFrame] = [:]
     private var errors: [ViewerFrameKey: String] = [:]
     private var ratings: [UUID: AssetRating]
+    private var explicitRetries: Set<ViewerFrameKey> = []
     private var isStarted = false
     private var viewport = PixelSize(width: 0, height: 0)
     private var displayScale = 1.0
@@ -66,13 +67,15 @@ final class ViewerPresentationState {
     }
 
     var isLoadingCurrent: Bool {
-        currentItem != nil && currentFrame == nil && currentErrorMessage == nil
+        guard let item = currentItem else { return false }
+        let key = ViewerFrameKey(assetID: item.id, variant: selectedVariant)
+        return frames[key]?.containsRealMedia != true && errors[key] == nil
     }
 
     var isLoadingSelectedVariant: Bool {
         guard let item = currentItem else { return false }
         let key = ViewerFrameKey(assetID: item.id, variant: selectedVariant)
-        return frames[key] == nil && errors[key] == nil
+        return frames[key]?.containsRealMedia != true && errors[key] == nil
     }
 
     var retainedFrameCount: Int { frames.count }
@@ -172,6 +175,7 @@ final class ViewerPresentationState {
         errors.removeValue(forKey: key)
         frameTasks.removeValue(forKey: key)?.cancel()
         activeRequests.removeValue(forKey: key)
+        explicitRetries.insert(key)
         reconcileRequests()
     }
 
@@ -196,7 +200,9 @@ final class ViewerPresentationState {
 
         for (key, request) in desired where activeRequests[key] != request {
             let oldTask = frameTasks[key]
-            let stream = pipeline.frames(for: request)
+            let stream = explicitRetries.remove(key) != nil
+                ? pipeline.retryFrames(for: request)
+                : pipeline.frames(for: request)
             activeRequests[key] = request
             frameTasks[key] = Task { [weak self] in
                 do {
@@ -272,7 +278,9 @@ final class ViewerPresentationState {
             }
         }
         frames[key] = frame
-        errors.removeValue(forKey: key)
+        if frame.containsRealMedia {
+            errors.removeValue(forKey: key)
+        }
 
         let isSelectedCurrent = currentItem?.id == key.assetID && selectedVariant == key.variant
         if isSelectedCurrent,
@@ -296,7 +304,7 @@ final class ViewerPresentationState {
         guard activeRequests[key] == request else { return }
         activeRequests.removeValue(forKey: key)
         frameTasks.removeValue(forKey: key)
-        if frames[key] == nil {
+        if frames[key]?.containsRealMedia != true {
             errors[key] = error ?? "This photo is unavailable."
         }
     }

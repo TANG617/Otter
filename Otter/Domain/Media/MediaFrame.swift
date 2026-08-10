@@ -23,4 +23,8 @@ struct MediaFrame: Sendable {
     let quality: MediaQuality
     let source: MediaSource
     let isFinalForCurrentDemand: Bool
+
+    var containsRealMedia: Bool {
+        quality != .placeholder && source != .generatedPlaceholder
+    }
 }

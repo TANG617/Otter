@@ -53,7 +53,7 @@ struct RepresentationPlanner: Sendable {
 
         case .viewer:
             var steps = [step(.preview, .preview, spec)]
-            if profile.supportsFullsize,
+            if profile.shouldProbeFullsize,
                shouldAppendUpgrade(observation: profile.preview, requiredPixels: request.requiredPixels) {
                 steps.append(step(.fullsize, .fullsize, spec))
             }
@@ -61,7 +61,7 @@ struct RepresentationPlanner: Sendable {
 
         case .zoom:
             var steps = [step(.preview, .preview, spec)]
-            if profile.supportsFullsize {
+            if profile.shouldProbeFullsize {
                 steps.append(step(.fullsize, .fullsize, spec))
             }
             return steps

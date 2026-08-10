@@ -134,6 +134,59 @@ struct RepresentationPlannerTests {
         #expect(result.map(\.representation) == [.preview, .fullsize])
     }
 
+    @Test("Unsupported fullsize is not probed again")
+    func unsupportedFullsize() throws {
+        let profile = ServerMediaProfile(fullsizeSupport: .unsupported)
+        let result = try planner.plan(
+            for: request(purpose: .zoom, zoomScale: 3),
+            profile: profile
+        )
+        #expect(result.map(\.representation) == [.preview])
+    }
+
+    @Test("Representation observations merge monotonically")
+    func observationMerge() {
+        var profile = ServerMediaProfile()
+        profile.merge(
+            .init(
+                mimeType: "image/jpeg",
+                maximumObservedDimension: 4_096,
+                byteCount: 2_000_000,
+                redirectsCrossOrigin: false
+            ),
+            for: .preview
+        )
+        profile.merge(
+            .init(
+                mimeType: "image/webp",
+                maximumObservedDimension: 640,
+                byteCount: 100_000,
+                redirectsCrossOrigin: false
+            ),
+            for: .preview
+        )
+
+        #expect(profile.preview?.maximumObservedDimension == 4_096)
+        #expect(profile.preview?.mimeType == "image/jpeg")
+        #expect(profile.preview?.byteCount == 2_000_000)
+    }
+
+    @Test("Unsupported fullsize evidence remains conservative")
+    func fullsizeSupportMerge() {
+        var profile = ServerMediaProfile()
+        profile.markFullsizeUnsupported()
+        profile.merge(
+            .init(
+                mimeType: "image/jpeg",
+                maximumObservedDimension: 2_048,
+                byteCount: nil,
+                redirectsCrossOrigin: false
+            ),
+            for: .fullsize
+        )
+        #expect(profile.fullsizeSupport == .unsupported)
+    }
+
     @Test("Coverage hysteresis prevents threshold thrashing")
     func hysteresis() {
         #expect(planner.coverageDecision(availablePixels: 840, requiredPixels: 1_000) == .upgrade)

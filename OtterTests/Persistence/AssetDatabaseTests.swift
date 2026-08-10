@@ -34,7 +34,7 @@ struct AssetDatabaseTests {
             thumbnail: nil,
             preview: observation,
             fullsize: nil,
-            supportsFullsize: true,
+            fullsizeSupport: .supported,
             supportsOriginal: true
         )
         try database.saveServerMediaProfile(profile, accountNamespace: account.namespace)

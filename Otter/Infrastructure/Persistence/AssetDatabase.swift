@@ -518,14 +518,15 @@ actor DatabaseServerMediaProfileStore: ServerMediaProfileProviding {
         _ observation: RepresentationObservation,
         for representation: RemoteRepresentation,
         accountNamespace: UUID
-    ) {
-        var profile = (try? database.serverMediaProfile(accountNamespace: accountNamespace)) ?? .init()
-        switch representation {
-        case .thumbnail: profile.thumbnail = observation
-        case .preview: profile.preview = observation
-        case .fullsize: profile.fullsize = observation
-        case .original: return
-        }
-        try? database.saveServerMediaProfile(profile, accountNamespace: accountNamespace)
+    ) throws {
+        var profile = try database.serverMediaProfile(accountNamespace: accountNamespace) ?? .init()
+        profile.merge(observation, for: representation)
+        try database.saveServerMediaProfile(profile, accountNamespace: accountNamespace)
+    }
+
+    func markFullsizeUnsupported(accountNamespace: UUID) throws {
+        var profile = try database.serverMediaProfile(accountNamespace: accountNamespace) ?? .init()
+        profile.markFullsizeUnsupported()
+        try database.saveServerMediaProfile(profile, accountNamespace: accountNamespace)
     }
 }

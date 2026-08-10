@@ -8,11 +8,74 @@ protocol MediaRequestBuilding: Sendable {
     ) throws -> URLRequest
 }
 
+enum MediaRedirectDisposition: String, Equatable, Sendable {
+    case followed
+    case rejectedCrossOrigin
+    case rejectedOriginalSubstitution
+}
+
+struct MediaRedirectHop: Equatable, Sendable {
+    let sourceURL: URL
+    let destinationURL: URL
+    let statusCode: Int
+    let disposition: MediaRedirectDisposition
+}
+
+struct MediaResponseMetadata: Equatable, Sendable {
+    let initialURL: URL
+    let finalURL: URL
+    let redirects: [MediaRedirectHop]
+
+    var wasRedirected: Bool {
+        !redirects.isEmpty || initialURL != finalURL
+    }
+
+    var nominalFullsizeResolvedToOriginal: Bool {
+        guard MediaRedirectPolicy.isFullsizeThumbnailURL(initialURL) else { return false }
+        if redirects.contains(where: {
+            MediaRedirectPolicy.sameOrigin(initialURL, $0.destinationURL)
+                && MediaRedirectPolicy.isOriginalURL($0.destinationURL)
+        }) {
+            return true
+        }
+        return wasRedirected
+            && MediaRedirectPolicy.sameOrigin(initialURL, finalURL)
+            && MediaRedirectPolicy.isOriginalURL(finalURL)
+    }
+}
+
+struct MediaTransportHTTPError: Error, Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+    let statusCode: Int
+    let retryAfter: TimeInterval?
+    let responseMetadata: MediaResponseMetadata
+
+    var description: String {
+        "MediaTransportHTTPError(statusCode: \(statusCode), response: <redacted>)"
+    }
+
+    var debugDescription: String { description }
+}
+
 struct TransportedMediaFile: Sendable {
     let fileURL: URL
     let mimeType: String?
     let byteCount: Int64?
     let statusCode: Int
+    let responseMetadata: MediaResponseMetadata?
+
+    init(
+        fileURL: URL,
+        mimeType: String?,
+        byteCount: Int64?,
+        statusCode: Int,
+        responseMetadata: MediaResponseMetadata? = nil
+    ) {
+        self.fileURL = fileURL
+        self.mimeType = mimeType
+        self.byteCount = byteCount
+        self.statusCode = statusCode
+        self.responseMetadata = responseMetadata
+    }
 }
 
 protocol MediaTransporting: Sendable {
@@ -41,14 +104,17 @@ final class URLSessionMediaTransport: NSObject, MediaTransporting, @unchecked Se
 
     func download(_ request: URLRequest) async throws -> TransportedMediaFile {
         try Task.checkCancellation()
-        let redirectGuard = CrossOriginRedirectGuard()
+        guard let initialURL = request.url else { throw MediaError.invalidHTTPResponse }
+        let redirectGuard = SafeMediaRedirectDelegate(initialURL: initialURL)
         let (temporaryURL, response) = try await session.download(for: request, delegate: redirectGuard)
         guard let http = response as? HTTPURLResponse else { throw MediaError.invalidHTTPResponse }
+        let responseMetadata = redirectGuard.responseMetadata(finalURL: http.url ?? initialURL)
         if http.statusCode == 401 { onAuthenticationInvalid() }
         guard (200..<300).contains(http.statusCode) else {
-            throw MediaError.httpStatus(
-                http.statusCode,
-                retryAfter: Self.retryAfter(from: http.value(forHTTPHeaderField: "Retry-After"))
+            throw MediaTransportHTTPError(
+                statusCode: http.statusCode,
+                retryAfter: Self.retryAfter(from: http.value(forHTTPHeaderField: "Retry-After")),
+                responseMetadata: responseMetadata
             )
         }
         let destination = stagingDirectory.appendingPathComponent("\(UUID().uuidString).download")
@@ -68,7 +134,8 @@ final class URLSessionMediaTransport: NSObject, MediaTransporting, @unchecked Se
             fileURL: destination,
             mimeType: http.mimeType,
             byteCount: size,
-            statusCode: http.statusCode
+            statusCode: http.statusCode,
+            responseMetadata: responseMetadata
         )
     }
 
@@ -94,7 +161,44 @@ final class URLSessionMediaTransport: NSObject, MediaTransporting, @unchecked Se
     }
 }
 
-private final class CrossOriginRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+enum MediaRedirectPolicy {
+    static func sameOrigin(_ lhs: URL?, _ rhs: URL?) -> Bool {
+        guard let lhs, let rhs else { return false }
+        return lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
+            && lhs.host?.lowercased() == rhs.host?.lowercased()
+            && effectivePort(lhs) == effectivePort(rhs)
+    }
+
+    static func isFullsizeThumbnailURL(_ url: URL) -> Bool {
+        guard url.lastPathComponent == "thumbnail",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return false
+        }
+        return components.queryItems?.contains(URLQueryItem(name: "size", value: "fullsize")) == true
+    }
+
+    static func isOriginalURL(_ url: URL) -> Bool {
+        url.lastPathComponent == "original"
+    }
+
+    static func shouldRejectOriginalSubstitution(initialURL: URL, destinationURL: URL) -> Bool {
+        isFullsizeThumbnailURL(initialURL) && isOriginalURL(destinationURL)
+    }
+
+    private static func effectivePort(_ url: URL) -> Int? {
+        url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+    }
+}
+
+private final class SafeMediaRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let initialURL: URL
+    private let lock = NSLock()
+    private var redirects: [MediaRedirectHop] = []
+
+    init(initialURL: URL) {
+        self.initialURL = initialURL
+    }
+
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
@@ -102,21 +206,50 @@ private final class CrossOriginRedirectGuard: NSObject, URLSessionTaskDelegate, 
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
-        guard Self.sameOrigin(task.originalRequest?.url, request.url) else {
+        let sourceURL = response.url ?? task.currentRequest?.url ?? initialURL
+        guard let destinationURL = request.url else {
             completionHandler(nil)
             return
         }
-        completionHandler(request)
+        let sameOrigin = MediaRedirectPolicy.sameOrigin(initialURL, destinationURL)
+        let rejectsOriginal = sameOrigin && MediaRedirectPolicy.shouldRejectOriginalSubstitution(
+            initialURL: initialURL,
+            destinationURL: destinationURL
+        )
+        let disposition: MediaRedirectDisposition = if !sameOrigin {
+            .rejectedCrossOrigin
+        } else if rejectsOriginal {
+            .rejectedOriginalSubstitution
+        } else {
+            .followed
+        }
+        lock.withLock {
+            redirects.append(
+                MediaRedirectHop(
+                    sourceURL: sourceURL,
+                    destinationURL: destinationURL,
+                    statusCode: response.statusCode,
+                    disposition: disposition
+                )
+            )
+        }
+        guard disposition == .followed else {
+            completionHandler(nil)
+            return
+        }
+        var authorizedRequest = request
+        if authorizedRequest.value(forHTTPHeaderField: "x-api-key") == nil,
+           let apiKey = task.originalRequest?.value(forHTTPHeaderField: "x-api-key") {
+            authorizedRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        }
+        completionHandler(authorizedRequest)
     }
 
-    private static func sameOrigin(_ lhs: URL?, _ rhs: URL?) -> Bool {
-        guard let lhs, let rhs else { return false }
-        return lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
-            && lhs.host?.lowercased() == rhs.host?.lowercased()
-            && effectivePort(lhs) == effectivePort(rhs)
-    }
-
-    private static func effectivePort(_ url: URL) -> Int? {
-        url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+    func responseMetadata(finalURL: URL) -> MediaResponseMetadata {
+        MediaResponseMetadata(
+            initialURL: initialURL,
+            finalURL: finalURL,
+            redirects: lock.withLock { redirects }
+        )
     }
 }

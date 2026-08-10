@@ -13,6 +13,7 @@ final class ViewerTestPipeline: MediaPipelineProtocol, @unchecked Sendable {
     private var streams: [Int: StreamRecord] = [:]
     private var requested: [MediaRequest] = []
     private var terminationCount = 0
+    private var explicitRetryCount = 0
 
     func peek(_ request: MediaRequest) -> MediaFrame? { nil }
 
@@ -28,6 +29,11 @@ final class ViewerTestPipeline: MediaPipelineProtocol, @unchecked Sendable {
                 self?.terminate(id: id)
             }
         }
+    }
+
+    func retryFrames(for request: MediaRequest) -> AsyncThrowingStream<MediaFrame, Error> {
+        lock.withLock { explicitRetryCount += 1 }
+        return frames(for: request)
     }
 
     func prefetch(_ requests: [MediaRequest]) -> PrefetchToken {
@@ -51,6 +57,10 @@ final class ViewerTestPipeline: MediaPipelineProtocol, @unchecked Sendable {
         lock.withLock { terminationCount }
     }
 
+    func retries() -> Int {
+        lock.withLock { explicitRetryCount }
+    }
+
     func yield(_ frame: MediaFrame, assetID: UUID, variant: AssetVariant) {
         let continuations = lock.withLock {
             streams.values.compactMap { record in
@@ -60,6 +70,29 @@ final class ViewerTestPipeline: MediaPipelineProtocol, @unchecked Sendable {
             }
         }
         continuations.forEach { $0.yield(frame) }
+    }
+
+    func finish(assetID: UUID, variant: AssetVariant) {
+        continuations(assetID: assetID, variant: variant).forEach { $0.finish() }
+    }
+
+    func fail(_ error: Error, assetID: UUID, variant: AssetVariant) {
+        continuations(assetID: assetID, variant: variant).forEach {
+            $0.finish(throwing: error)
+        }
+    }
+
+    private func continuations(
+        assetID: UUID,
+        variant: AssetVariant
+    ) -> [AsyncThrowingStream<MediaFrame, Error>.Continuation] {
+        lock.withLock {
+            streams.values.compactMap { record in
+                record.request.asset.id == assetID && record.request.variant == variant
+                    ? record.continuation
+                    : nil
+            }
+        }
     }
 
     private func terminate(id: Int) {
@@ -128,4 +161,18 @@ func settleViewerTasks(iterations: Int = 8) async {
     for _ in 0..<iterations {
         await Task.yield()
     }
+}
+
+@MainActor
+func waitForViewerCondition(
+    timeout: Duration = .seconds(2),
+    _ condition: @MainActor () -> Bool
+) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !condition() {
+        guard clock.now < deadline else { return false }
+        await Task.yield()
+    }
+    return true
 }

@@ -4,6 +4,39 @@ import ImageIO
 import UniformTypeIdentifiers
 @testable import Otter
 
+actor AsyncTestGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        let pending = waiters
+        waiters.removeAll()
+        pending.forEach { $0.resume() }
+    }
+}
+
+func waitForTestCondition(
+    timeout: Duration = .seconds(2),
+    _ condition: @escaping @Sendable () async -> Bool
+) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !(await condition()) {
+        guard clock.now < deadline else { return false }
+        await Task.yield()
+    }
+    return true
+}
+
 func mediaTestKey(
     account: UUID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
     asset: UUID = UUID(),

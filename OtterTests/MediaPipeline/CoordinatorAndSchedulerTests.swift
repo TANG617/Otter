@@ -31,17 +31,22 @@ struct RequestCoordinatorTests {
         let scheduler = WorkScheduler()
         let coordinator = RequestCoordinator(scheduler: scheduler)
         let counter = InvocationCounter()
+        let entered = AsyncTestGate()
+        let release = AsyncTestGate()
         let key = try mediaTestKey()
         let file = CachedByteFile(key: key, fileURL: URL(fileURLWithPath: "/tmp/test"), byteCount: 1, mimeType: nil, pixelWidth: nil, pixelHeight: nil)
         let operation: @Sendable (UUID) async throws -> CachedByteFile = { _ in
             await counter.increment()
-            try await Task.sleep(for: .milliseconds(50))
+            await entered.open()
+            await release.wait()
             return file
         }
 
         let first = await coordinator.leaseBytes(for: key, priority: .prefetch, operation: operation)
+        await entered.wait()
         let second = await coordinator.leaseBytes(for: key, priority: .interactive, operation: operation)
         first.release()
+        await release.open()
         let result = try await second.value()
         #expect(result.key == key)
         #expect(await counter.value == 1)
@@ -53,14 +58,23 @@ struct RequestCoordinatorTests {
         let scheduler = WorkScheduler()
         let coordinator = RequestCoordinator(scheduler: scheduler)
         let key = try mediaTestKey()
+        let entered = AsyncTestGate()
+        let release = AsyncTestGate()
         let lease = await coordinator.leaseBytes(for: key, priority: .prefetch) { _ in
-            try await Task.sleep(for: .seconds(30))
+            await entered.open()
+            await release.wait()
+            try Task.checkCancellation()
             throw MediaError.cancelled
         }
+        await entered.wait()
         lease.release()
-        try await Task.sleep(for: .milliseconds(50))
-        let stats = await coordinator.stats()
-        #expect(stats.byteRequests == 0)
+        #expect(await waitForTestCondition {
+            await coordinator.stats().byteRequests == 0
+        })
+        await release.open()
+        await #expect(throws: CancellationError.self) {
+            try await lease.value()
+        }
     }
 
     @Test("Same render key shares one decode task")
@@ -68,6 +82,8 @@ struct RequestCoordinatorTests {
         let scheduler = WorkScheduler()
         let coordinator = RequestCoordinator(scheduler: scheduler)
         let counter = InvocationCounter()
+        let entered = AsyncTestGate()
+        let release = AsyncTestGate()
         let byteKey = try mediaTestKey()
         let renderKey = RenderCacheKey(
             byteKey: byteKey,
@@ -78,12 +94,15 @@ struct RequestCoordinatorTests {
         let surface = try ThumbHashDecoder().decode(base64: base64)
         let operation: @Sendable (UUID) async throws -> RenderSurface = { _ in
             await counter.increment()
-            try await Task.sleep(for: .milliseconds(30))
+            await entered.open()
+            await release.wait()
             return surface
         }
 
         let first = await coordinator.leaseRender(for: renderKey, priority: .visible, operation: operation)
+        await entered.wait()
         let second = await coordinator.leaseRender(for: renderKey, priority: .visible, operation: operation)
+        await release.open()
         _ = try await (first.value(), second.value())
         #expect(await counter.value == 1)
         first.release()
@@ -97,17 +116,26 @@ struct WorkSchedulerTests {
     func laneBound() async throws {
         let scheduler = WorkScheduler(limits: .init(values: [.thumbnail: 1]))
         let tracker = ConcurrencyTracker()
+        let firstEntered = AsyncTestGate()
+        let release = AsyncTestGate()
         await withTaskGroup(of: Void.self) { group in
             for _ in 0..<8 {
                 group.addTask {
                     _ = try? await scheduler.run(lane: .thumbnail, priority: .visible) {
                         await tracker.enter()
-                        try await Task.sleep(for: .milliseconds(5))
+                        await firstEntered.open()
+                        await release.wait()
                         await tracker.leave()
                         return ()
                     }
                 }
             }
+            await firstEntered.wait()
+            #expect(await waitForTestCondition {
+                await scheduler.stats().queuedByLane[.thumbnail] == 7
+            })
+            #expect(await tracker.maximum == 1)
+            await release.open()
         }
         #expect(await tracker.maximum == 1)
     }
@@ -116,19 +144,29 @@ struct WorkSchedulerTests {
     func priorityOrdering() async throws {
         let scheduler = WorkScheduler(limits: .init(values: [.preview: 1]))
         let order = CompletionOrder()
+        let blockerEntered = AsyncTestGate()
+        let releaseBlocker = AsyncTestGate()
         let blocker = Task {
             try await scheduler.run(lane: .preview, priority: .visible) {
-                try await Task.sleep(for: .milliseconds(80))
+                await blockerEntered.open()
+                await releaseBlocker.wait()
                 await order.append("blocker")
             }
         }
-        try await Task.sleep(for: .milliseconds(10))
+        await blockerEntered.wait()
         let low = Task {
             try await scheduler.run(lane: .preview, priority: .prefetch) { await order.append("low") }
         }
+        #expect(await waitForTestCondition {
+            await scheduler.stats().queuedByLane[.preview] == 1
+        })
         let high = Task {
             try await scheduler.run(lane: .preview, priority: .interactive) { await order.append("high") }
         }
+        #expect(await waitForTestCondition {
+            await scheduler.stats().queuedByLane[.preview] == 2
+        })
+        await releaseBlocker.open()
         _ = try await (blocker.value, low.value, high.value)
         #expect(await order.values == ["blocker", "high", "low"])
     }
@@ -139,20 +177,26 @@ struct WorkSchedulerTests {
             limits: .init(values: [.preview: 1, .thumbnail: 4])
         )
         let speculativeStarts = InvocationCounter()
+        let interactiveEntered = AsyncTestGate()
+        let releaseInteractive = AsyncTestGate()
         let interactive = Task {
             try await scheduler.run(lane: .preview, priority: .interactive) {
-                try await Task.sleep(for: .milliseconds(120))
+                await interactiveEntered.open()
+                await releaseInteractive.wait()
             }
         }
-        try await Task.sleep(for: .milliseconds(20))
+        await interactiveEntered.wait()
         let speculative = Task {
             try await scheduler.run(lane: .thumbnail, priority: .prefetch) {
                 await speculativeStarts.increment()
             }
         }
-        try await Task.sleep(for: .milliseconds(40))
+        #expect(await waitForTestCondition {
+            await scheduler.stats().queuedByLane[.thumbnail] == 1
+        })
         #expect(await speculativeStarts.value == 0)
 
+        await releaseInteractive.open()
         _ = try await (interactive.value, speculative.value)
         #expect(await speculativeStarts.value == 1)
     }
