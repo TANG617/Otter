@@ -1,0 +1,809 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		23EA6B66AE4F56383ABB69A2 /* OtterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCF9BB947E50B890F243E701 /* OtterApp.swift */; };
+		3A22FAB9FA9E804A8E6C280F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14BB813EF5D69F4975536F38 /* Assets.xcassets */; };
+		454480E708E177BAC133CF34 /* AppRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D937094819AFE51D0ADFA9F /* AppRootView.swift */; };
+		46591DEFC2DB9B8A9745709E /* OtterUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 418AB6DA0939B03E3D6C9A28 /* OtterUITests.swift */; };
+		5335E9A538A8B828514A1901 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 869E1E2D6CA67BF374EDCC74 /* AppEnvironment.swift */; };
+		96EE9372059D45EED7343F18 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D661B84B5411B8AEAD02A7A3 /* AppSession.swift */; };
+		9BADD8663BE7094D386AD20F /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 3A3104E766425D5C80532FC7 /* GRDB */; };
+		C46DA530A68EEBF283F9544F /* AppRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E7ABAA39223F9DD25FC9364 /* AppRoute.swift */; };
+		D8EB062A6A828B76B6DCB059 /* SkeletonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D327BDC4A8A532567F47063E /* SkeletonTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		7163490347FFFFF9CA1B08BB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C80192EA17919BF92F48BDB8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FC45C1A7DC8B8C5E4797F811;
+			remoteInfo = Otter;
+		};
+		D53CAC5C43F1E04FCC2E88C2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C80192EA17919BF92F48BDB8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FC45C1A7DC8B8C5E4797F811;
+			remoteInfo = Otter;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0E6B5ED27CED27630765E8D9 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		14BB813EF5D69F4975536F38 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		22C89F99D28EC785E3BBE893 /* Otter.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Otter.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		28FB2FE8737053A80A0C2756 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		2BBEE35E300354F9339B473E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		2BCF0F82E67D450087058611 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		402A8A16673763831459D22C /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		418AB6DA0939B03E3D6C9A28 /* OtterUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtterUITests.swift; sourceTree = "<group>"; };
+		427788D07F4466395A474FA0 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		4F7758AD1623D2EA2CB7E809 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		58D5B73C3DC77EC5320B9812 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		63777CF11BCC512154F72B9D /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		6D937094819AFE51D0ADFA9F /* AppRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRootView.swift; sourceTree = "<group>"; };
+		6E7ABAA39223F9DD25FC9364 /* AppRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRoute.swift; sourceTree = "<group>"; };
+		7558C6B14830436CED93AAFB /* OtterUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OtterUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7A0ECAE6B5B12EF37D30B138 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		868E3CD2CD00E78AB55352D3 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		869E1E2D6CA67BF374EDCC74 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		97C226F9D95A0D3EF2081B3A /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		A01F8AE984A68B14F3BB1309 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		A42A3D64CB29E729F5CEB4B3 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		A756E736E1BEF3174F71A8D2 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		AAB202785065B88A70BE5BB4 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		B23F80BE5BDEE947097C333B /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		B3538F172933FE598F1EC173 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		B81AE08163C521AF1BCC76D5 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		D327BDC4A8A532567F47063E /* SkeletonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkeletonTests.swift; sourceTree = "<group>"; };
+		D4EC60FE3C7126CD2C8C97A5 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		D661B84B5411B8AEAD02A7A3 /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
+		DEA8B04CC51F7870A46D9AB3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		DF6DFF07D4C0CC266DF5773C /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		DFE49C49AC0B81F3DDEC9E90 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
+		F6C404D4C66BB43D4FECEBAF /* OtterTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OtterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FCF9BB947E50B890F243E701 /* OtterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtterApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5BDF3C57F0012297663AAA71 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9BADD8663BE7094D386AD20F /* GRDB in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		093BADA2BFB52ED7378C27CC /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				22C89F99D28EC785E3BBE893 /* Otter.app */,
+				F6C404D4C66BB43D4FECEBAF /* OtterTests.xctest */,
+				7558C6B14830436CED93AAFB /* OtterUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		0E4E3614F605C06CE6D4B8BF /* Immich */ = {
+			isa = PBXGroup;
+			children = (
+				B23F80BE5BDEE947097C333B /* .gitkeep */,
+			);
+			path = Immich;
+			sourceTree = "<group>";
+		};
+		23DA9FE54675FBC4DE4D5920 /* Fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				A756E736E1BEF3174F71A8D2 /* .gitkeep */,
+			);
+			path = Fixtures;
+			sourceTree = "<group>";
+		};
+		27989122A8F6B0CE30533E44 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				A01F8AE984A68B14F3BB1309 /* .gitkeep */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		3229098541EF839EFD74BFCE /* OtterTests */ = {
+			isa = PBXGroup;
+			children = (
+				C0E75214642DB5A65FD889A4 /* Domain */,
+				23DA9FE54675FBC4DE4D5920 /* Fixtures */,
+				F8AEC5BA6CB05C09E323AD30 /* Immich */,
+				BCA46779B3AD9AAA2300F9DF /* MediaCache */,
+				7D5D800D04AC42BC84404BCC /* MediaPipeline */,
+				27989122A8F6B0CE30533E44 /* Persistence */,
+				D327BDC4A8A532567F47063E /* SkeletonTests.swift */,
+			);
+			path = OtterTests;
+			sourceTree = "<group>";
+		};
+		49C1784A1A4746CF2B9763E6 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				DF6DFF07D4C0CC266DF5773C /* .gitkeep */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		4DC9329E8311847D5A9BBCC1 /* Viewer */ = {
+			isa = PBXGroup;
+			children = (
+				97C226F9D95A0D3EF2081B3A /* .gitkeep */,
+			);
+			path = Viewer;
+			sourceTree = "<group>";
+		};
+		584757BC94F495F210C94C18 /* MediaCache */ = {
+			isa = PBXGroup;
+			children = (
+				DFE49C49AC0B81F3DDEC9E90 /* .gitkeep */,
+			);
+			path = MediaCache;
+			sourceTree = "<group>";
+		};
+		5DD9B07A965AD386023D8D20 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				869E1E2D6CA67BF374EDCC74 /* AppEnvironment.swift */,
+				6D937094819AFE51D0ADFA9F /* AppRootView.swift */,
+				6E7ABAA39223F9DD25FC9364 /* AppRoute.swift */,
+				D661B84B5411B8AEAD02A7A3 /* AppSession.swift */,
+				FCF9BB947E50B890F243E701 /* OtterApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		5F614D9D98D30D6A9285F289 = {
+			isa = PBXGroup;
+			children = (
+				B16E6D9A9A46BA364EBB0AF1 /* Config */,
+				B210B1A34FC9540B844565F2 /* Otter */,
+				3229098541EF839EFD74BFCE /* OtterTests */,
+				DE3E13901999B6AE4C03147C /* OtterUITests */,
+				093BADA2BFB52ED7378C27CC /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		61AE8C574A5D9C65802C4B6D /* Assets */ = {
+			isa = PBXGroup;
+			children = (
+				868E3CD2CD00E78AB55352D3 /* .gitkeep */,
+			);
+			path = Assets;
+			sourceTree = "<group>";
+		};
+		7A152DA90CE6977A99E03404 /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				58D5B73C3DC77EC5320B9812 /* .gitkeep */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
+		7D5D800D04AC42BC84404BCC /* MediaPipeline */ = {
+			isa = PBXGroup;
+			children = (
+				7A0ECAE6B5B12EF37D30B138 /* .gitkeep */,
+			);
+			path = MediaPipeline;
+			sourceTree = "<group>";
+		};
+		808EAA48DF5D6A2E12876717 /* Infrastructure */ = {
+			isa = PBXGroup;
+			children = (
+				AEED32588EE225CD8F908FFE /* Export */,
+				0E4E3614F605C06CE6D4B8BF /* Immich */,
+				584757BC94F495F210C94C18 /* MediaCache */,
+				D71BE876C3DA3856951A8901 /* MediaPipeline */,
+				BBCEFB49DA31809DC349F8C9 /* Persistence */,
+				7A152DA90CE6977A99E03404 /* Security */,
+			);
+			path = Infrastructure;
+			sourceTree = "<group>";
+		};
+		824673F41E6AA2F9F8223915 /* Domain */ = {
+			isa = PBXGroup;
+			children = (
+				61AE8C574A5D9C65802C4B6D /* Assets */,
+				C6C7B270972A0EBFFB3D7EA7 /* Media */,
+			);
+			path = Domain;
+			sourceTree = "<group>";
+		};
+		925FAE75CF71C4B394004A9D /* Diagnostics */ = {
+			isa = PBXGroup;
+			children = (
+				427788D07F4466395A474FA0 /* .gitkeep */,
+			);
+			path = Diagnostics;
+			sourceTree = "<group>";
+		};
+		9A3CB47302076A744EC9D6BE /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				14BB813EF5D69F4975536F38 /* Assets.xcassets */,
+				DEA8B04CC51F7870A46D9AB3 /* Info.plist */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		A525FC8F05AB1E992F206BCF /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				402A8A16673763831459D22C /* .gitkeep */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		ACF9D44BAEAD1FE0E1C15828 /* SharedUI */ = {
+			isa = PBXGroup;
+			children = (
+				B3538F172933FE598F1EC173 /* .gitkeep */,
+			);
+			path = SharedUI;
+			sourceTree = "<group>";
+		};
+		AEED32588EE225CD8F908FFE /* Export */ = {
+			isa = PBXGroup;
+			children = (
+				B81AE08163C521AF1BCC76D5 /* .gitkeep */,
+			);
+			path = Export;
+			sourceTree = "<group>";
+		};
+		B16E6D9A9A46BA364EBB0AF1 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				28FB2FE8737053A80A0C2756 /* Debug.xcconfig */,
+				2BBEE35E300354F9339B473E /* Release.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		B210B1A34FC9540B844565F2 /* Otter */ = {
+			isa = PBXGroup;
+			children = (
+				5DD9B07A965AD386023D8D20 /* App */,
+				824673F41E6AA2F9F8223915 /* Domain */,
+				C422B1D1C84846C6E1D718A6 /* Features */,
+				808EAA48DF5D6A2E12876717 /* Infrastructure */,
+				9A3CB47302076A744EC9D6BE /* Resources */,
+				ACF9D44BAEAD1FE0E1C15828 /* SharedUI */,
+			);
+			path = Otter;
+			sourceTree = "<group>";
+		};
+		BBCEFB49DA31809DC349F8C9 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				AAB202785065B88A70BE5BB4 /* .gitkeep */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		BCA46779B3AD9AAA2300F9DF /* MediaCache */ = {
+			isa = PBXGroup;
+			children = (
+				A42A3D64CB29E729F5CEB4B3 /* .gitkeep */,
+			);
+			path = MediaCache;
+			sourceTree = "<group>";
+		};
+		C0E75214642DB5A65FD889A4 /* Domain */ = {
+			isa = PBXGroup;
+			children = (
+				2BCF0F82E67D450087058611 /* .gitkeep */,
+			);
+			path = Domain;
+			sourceTree = "<group>";
+		};
+		C422B1D1C84846C6E1D718A6 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				925FAE75CF71C4B394004A9D /* Diagnostics */,
+				DB089934FD27737E6A809BE5 /* Library */,
+				A525FC8F05AB1E992F206BCF /* Onboarding */,
+				49C1784A1A4746CF2B9763E6 /* Settings */,
+				4DC9329E8311847D5A9BBCC1 /* Viewer */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		C6C7B270972A0EBFFB3D7EA7 /* Media */ = {
+			isa = PBXGroup;
+			children = (
+				4F7758AD1623D2EA2CB7E809 /* .gitkeep */,
+			);
+			path = Media;
+			sourceTree = "<group>";
+		};
+		D71BE876C3DA3856951A8901 /* MediaPipeline */ = {
+			isa = PBXGroup;
+			children = (
+				63777CF11BCC512154F72B9D /* .gitkeep */,
+			);
+			path = MediaPipeline;
+			sourceTree = "<group>";
+		};
+		DB089934FD27737E6A809BE5 /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				D4EC60FE3C7126CD2C8C97A5 /* .gitkeep */,
+			);
+			path = Library;
+			sourceTree = "<group>";
+		};
+		DE3E13901999B6AE4C03147C /* OtterUITests */ = {
+			isa = PBXGroup;
+			children = (
+				418AB6DA0939B03E3D6C9A28 /* OtterUITests.swift */,
+			);
+			path = OtterUITests;
+			sourceTree = "<group>";
+		};
+		F8AEC5BA6CB05C09E323AD30 /* Immich */ = {
+			isa = PBXGroup;
+			children = (
+				0E6B5ED27CED27630765E8D9 /* .gitkeep */,
+			);
+			path = Immich;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A581F16A6DA2EE5B73DE29C6 /* OtterTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1820AC48323C6D58AA6C33C5 /* Build configuration list for PBXNativeTarget "OtterTests" */;
+			buildPhases = (
+				C7D28443E2455D8355EDF1C2 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				ACDA2759898CEAFB39A2CEF0 /* PBXTargetDependency */,
+			);
+			name = OtterTests;
+			packageProductDependencies = (
+			);
+			productName = OtterTests;
+			productReference = F6C404D4C66BB43D4FECEBAF /* OtterTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		FC45C1A7DC8B8C5E4797F811 /* Otter */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E525405E647F519F541BF96A /* Build configuration list for PBXNativeTarget "Otter" */;
+			buildPhases = (
+				FF25C0CB46EE2B94F8EC8472 /* Sources */,
+				FB3C556BFF2D37B7EBCACAEB /* Resources */,
+				5BDF3C57F0012297663AAA71 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Otter;
+			packageProductDependencies = (
+				3A3104E766425D5C80532FC7 /* GRDB */,
+			);
+			productName = Otter;
+			productReference = 22C89F99D28EC785E3BBE893 /* Otter.app */;
+			productType = "com.apple.product-type.application";
+		};
+		FDD72B4487496B81C1BD2ACE /* OtterUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FF46E7E15362324AF8BF9F85 /* Build configuration list for PBXNativeTarget "OtterUITests" */;
+			buildPhases = (
+				D0EC453D021DA20ED09BF92C /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0E34FA6A1E8DE7AD49D893BB /* PBXTargetDependency */,
+			);
+			name = OtterUITests;
+			packageProductDependencies = (
+			);
+			productName = OtterUITests;
+			productReference = 7558C6B14830436CED93AAFB /* OtterUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C80192EA17919BF92F48BDB8 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					FDD72B4487496B81C1BD2ACE = {
+						TestTargetID = FC45C1A7DC8B8C5E4797F811;
+					};
+				};
+			};
+			buildConfigurationList = 618D401F4C5BEED6DCAAB884 /* Build configuration list for PBXProject "Otter" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 5F614D9D98D30D6A9285F289;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F71958A72B1B9754DA7D025D /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 093BADA2BFB52ED7378C27CC /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				FC45C1A7DC8B8C5E4797F811 /* Otter */,
+				A581F16A6DA2EE5B73DE29C6 /* OtterTests */,
+				FDD72B4487496B81C1BD2ACE /* OtterUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		FB3C556BFF2D37B7EBCACAEB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3A22FAB9FA9E804A8E6C280F /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C7D28443E2455D8355EDF1C2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D8EB062A6A828B76B6DCB059 /* SkeletonTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D0EC453D021DA20ED09BF92C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				46591DEFC2DB9B8A9745709E /* OtterUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FF25C0CB46EE2B94F8EC8472 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5335E9A538A8B828514A1901 /* AppEnvironment.swift in Sources */,
+				454480E708E177BAC133CF34 /* AppRootView.swift in Sources */,
+				C46DA530A68EEBF283F9544F /* AppRoute.swift in Sources */,
+				96EE9372059D45EED7343F18 /* AppSession.swift in Sources */,
+				23EA6B66AE4F56383ABB69A2 /* OtterApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0E34FA6A1E8DE7AD49D893BB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FC45C1A7DC8B8C5E4797F811 /* Otter */;
+			targetProxy = D53CAC5C43F1E04FCC2E88C2 /* PBXContainerItemProxy */;
+		};
+		ACDA2759898CEAFB39A2CEF0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FC45C1A7DC8B8C5E4797F811 /* Otter */;
+			targetProxy = 7163490347FFFFF9CA1B08BB /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1D9352B404C7571756C47322 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Otter/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Otter;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Otter connects to the Immich server you choose on your local network.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Otter saves only the photos you explicitly download.";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(OTTER_APP_BUNDLE_IDENTIFIER)";
+				PRODUCT_NAME = Otter;
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+		5F87BE1FE2D9642F973099B4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 28FB2FE8737053A80A0C2756 /* Debug.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		6AEE74B05B4977B37A41A870 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(OTTER_APP_BUNDLE_IDENTIFIER).uitests";
+				PRODUCT_NAME = OtterUITests;
+				SDKROOT = iphoneos;
+				TEST_TARGET_NAME = Otter;
+			};
+			name = Release;
+		};
+		92113223DCB98FFF04C0E2F7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(OTTER_APP_BUNDLE_IDENTIFIER).tests";
+				PRODUCT_NAME = OtterTests;
+				SDKROOT = iphoneos;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Otter.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Otter";
+			};
+			name = Debug;
+		};
+		CA23EEE2DE5C5F6924F46A3D /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 2BBEE35E300354F9339B473E /* Release.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+		CCDCD7C93AC2296D6A801A75 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Otter/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Otter;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Otter connects to the Immich server you choose on your local network.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Otter saves only the photos you explicitly download.";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(OTTER_APP_BUNDLE_IDENTIFIER)";
+				PRODUCT_NAME = Otter;
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		D21EB42B6ED8E4CAC0696D8B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(OTTER_APP_BUNDLE_IDENTIFIER).uitests";
+				PRODUCT_NAME = OtterUITests;
+				SDKROOT = iphoneos;
+				TEST_TARGET_NAME = Otter;
+			};
+			name = Debug;
+		};
+		FFF7AF173690C2135AAFB4A9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(OTTER_APP_BUNDLE_IDENTIFIER).tests";
+				PRODUCT_NAME = OtterTests;
+				SDKROOT = iphoneos;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Otter.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Otter";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1820AC48323C6D58AA6C33C5 /* Build configuration list for PBXNativeTarget "OtterTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				92113223DCB98FFF04C0E2F7 /* Debug */,
+				FFF7AF173690C2135AAFB4A9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		618D401F4C5BEED6DCAAB884 /* Build configuration list for PBXProject "Otter" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5F87BE1FE2D9642F973099B4 /* Debug */,
+				CA23EEE2DE5C5F6924F46A3D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E525405E647F519F541BF96A /* Build configuration list for PBXNativeTarget "Otter" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CCDCD7C93AC2296D6A801A75 /* Debug */,
+				1D9352B404C7571756C47322 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FF46E7E15362324AF8BF9F85 /* Build configuration list for PBXNativeTarget "OtterUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D21EB42B6ED8E4CAC0696D8B /* Debug */,
+				6AEE74B05B4977B37A41A870 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F71958A72B1B9754DA7D025D /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.11.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3A3104E766425D5C80532FC7 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F71958A72B1B9754DA7D025D /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = C80192EA17919BF92F48BDB8 /* Project object */;
+}

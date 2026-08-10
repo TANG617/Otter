@@ -158,7 +158,7 @@ The client should discover or infer server media behavior at runtime, including:
 
 The client MUST prefer stable public Immich APIs. Internal endpoints must not become foundational dependencies. In particular, the current `/timeline/*` APIs are marked Internal by Immich; Otter should build its own timeline grouping on stable search/sync data rather than coupling its core UX to those endpoints.
 
-The current Immich `/server/version`, asset thumbnail/original endpoints, and sync stream are documented as Stable as of 2026-08-10. API status is not permanent; compatibility code must remain isolated behind adapters.
+The current Immich `/server/version`, asset thumbnail/original endpoints, and sync stream are documented as Stable as of 2026-08-10. However, Immich v3.1.0 explicitly rejects API-key authentication for the sync stream. The API-key MVP therefore uses stable metadata search with overlap polling and periodic reconciliation, and does not claim real-time sync. API status is not permanent; compatibility code must remain isolated behind the compatibility boundary.
 
 ---
 

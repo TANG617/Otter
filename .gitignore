@@ -1,0 +1,13 @@
+.DS_Store
+.build/
+DerivedData/
+.codex-artifacts/
+Artifacts/
+*.xcresult
+*.trace
+*.memgraph
+Config/Local.xcconfig
+*.local.xcconfig
+xcuserdata/
+*.xccheckout
+
