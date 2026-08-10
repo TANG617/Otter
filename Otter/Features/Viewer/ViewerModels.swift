@@ -21,13 +21,13 @@ struct ViewerItem: Hashable, Identifiable, Sendable {
 
 struct ViewerActions: Sendable {
     let onDismiss: @MainActor @Sendable () -> Void
-    let onRate: @MainActor @Sendable (ViewerItem, AssetRating?) -> Void
+    let onRate: @MainActor @Sendable (ViewerItem, AssetRating?) async -> ViewerRatingMutationOutcome
     let onExport: @MainActor @Sendable (ViewerItem, AssetVariant) -> Void
     let onSettings: @MainActor @Sendable () -> Void
 
     init(
         onDismiss: @escaping @MainActor @Sendable () -> Void,
-        onRate: @escaping @MainActor @Sendable (ViewerItem, AssetRating?) -> Void,
+        onRate: @escaping @MainActor @Sendable (ViewerItem, AssetRating?) async -> ViewerRatingMutationOutcome,
         onExport: @escaping @MainActor @Sendable (ViewerItem, AssetVariant) -> Void,
         onSettings: @escaping @MainActor @Sendable () -> Void
     ) {
@@ -36,6 +36,11 @@ struct ViewerActions: Sendable {
         self.onExport = onExport
         self.onSettings = onSettings
     }
+}
+
+enum ViewerRatingMutationOutcome: Equatable, Sendable {
+    case verified(AssetRating?)
+    case failed
 }
 
 enum ViewerInteractionState: Equatable, Sendable {

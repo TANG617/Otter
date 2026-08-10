@@ -9,6 +9,7 @@ struct FullscreenViewer: View {
     init(
         items: [ViewerItem],
         initialAssetID: UUID? = nil,
+        initialFrame: MediaFrame? = nil,
         pipeline: any MediaPipelineProtocol,
         actions: ViewerActions
     ) {
@@ -16,6 +17,7 @@ struct FullscreenViewer: View {
             initialValue: ViewerPresentationState(
                 items: items,
                 initialAssetID: initialAssetID,
+                initialFrame: initialFrame,
                 pipeline: pipeline
             )
         )
@@ -185,8 +187,18 @@ struct FullscreenViewer: View {
         Binding(
             get: { state.rating(for: item.id) },
             set: { rating in
+                let previous = state.rating(for: item.id)
                 state.setRating(rating, for: item.id)
-                actions.onRate(item, rating)
+                Task {
+                    let outcome = await actions.onRate(item, rating)
+                    guard state.rating(for: item.id) == rating else { return }
+                    switch outcome {
+                    case let .verified(verified):
+                        state.setRating(verified, for: item.id)
+                    case .failed:
+                        state.setRating(previous, for: item.id)
+                    }
+                }
             }
         )
     }

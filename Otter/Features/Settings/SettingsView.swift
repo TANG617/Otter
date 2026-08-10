@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor
 struct SettingsView: View {
     typealias UpdateCacheLimit = @MainActor (SettingsCacheLimit) -> Void
-    typealias PerformAction = @Sendable () async -> ActionOutcome
+    typealias PerformAction = @MainActor @Sendable () async -> ActionOutcome
     typealias OpenDiagnostics = @MainActor () -> Void
 
     @State private var cacheLimit: SettingsCacheLimit

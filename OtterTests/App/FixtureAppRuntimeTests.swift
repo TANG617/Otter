@@ -7,10 +7,10 @@ struct FixtureAppRuntimeTests {
     @Test("Standard runtime exposes deterministic paged assets")
     func pages() async throws {
         let runtime = FixtureAppRuntime.make(configuration: .init(scale: .standard))
-        let first = try await runtime.assetStore.localPage(
+        let first = await runtime.assetStore.localPage(
             TimelinePageRequest(accountNamespace: runtime.accountNamespace, limit: 200)
         )
-        let second = try await runtime.assetStore.localPage(
+        let second = await runtime.assetStore.localPage(
             TimelinePageRequest(
                 accountNamespace: runtime.accountNamespace,
                 after: first.nextCursor,
@@ -26,7 +26,7 @@ struct FixtureAppRuntimeTests {
     @Test("Rating changes metadata without changing media revisions")
     func rating() async throws {
         let runtime = FixtureAppRuntime.make(configuration: .init(scale: .standard))
-        let page = try await runtime.assetStore.localPage(
+        let page = await runtime.assetStore.localPage(
             TimelinePageRequest(accountNamespace: runtime.accountNamespace, limit: 1)
         )
         let asset = try #require(page.assets.first)

@@ -214,6 +214,83 @@ final class AppEnvironment {
         return .success(message: "Signed out.")
     }
 
+    func settingsSnapshot() async -> SettingsSnapshot {
+        if usesFixtures { return .fixture }
+        guard let runtime = liveRuntime else {
+            return SettingsSnapshot(
+                accountDisplayName: "Signed Out",
+                serverDisplayName: "Unavailable",
+                serverVersion: "Unavailable",
+                cacheUsageBytes: 0,
+                cacheLimit: .gibibytes2,
+                appVersion: Self.appVersion,
+                usesFixtures: false
+            )
+        }
+        let stats = try? await runtime.diskCache.stats()
+        let record = try? accountStore.load()
+        let limit = record.flatMap { SettingsCacheLimit(rawValue: $0.cacheLimitBytes) } ?? .gibibytes2
+        return SettingsSnapshot(
+            accountDisplayName: runtime.serverURL.url.host() ?? "Immich",
+            serverDisplayName: runtime.serverURL.url.host() ?? "Immich",
+            serverVersion: runtime.account.serverVersion ?? "Unavailable",
+            cacheUsageBytes: stats?.byteCount ?? 0,
+            cacheLimit: limit,
+            appVersion: Self.appVersion,
+            usesFixtures: false
+        )
+    }
+
+    func diagnosticsSnapshot() async -> DiagnosticsSnapshot {
+        if usesFixtures { return .fixture }
+        guard let runtime = liveRuntime else {
+            return DiagnosticsSnapshot(
+                appVersion: Self.appVersion,
+                buildNumber: Self.buildNumber,
+                serverVersion: nil,
+                connectionStatus: .signedOut,
+                assetCount: 0,
+                lastMetadataRefresh: nil,
+                mediaCacheBytes: 0,
+                memoryCacheBytes: 0,
+                inFlightMediaRequests: 0,
+                queuedDecodeCount: 0,
+                ratingWriteStatus: "Unavailable",
+                originalPermissionStatus: "Unavailable",
+                currentExportStatus: "Unavailable",
+                thumbnailObservation: nil,
+                previewObservation: nil,
+                fullsizeObservation: nil,
+                usesFixtures: false
+            )
+        }
+
+        let stats = try? await runtime.mediaPipeline.stats()
+        let syncState = try? runtime.database.syncState(accountNamespace: runtime.account.namespace)
+        let profile = try? runtime.database.serverMediaProfile(accountNamespace: runtime.account.namespace)
+        let assetCount = (try? runtime.database.count(accountNamespace: runtime.account.namespace)) ?? 0
+        let ratingAvailability = await runtime.ratingRepository.writeAvailability
+        return DiagnosticsSnapshot(
+            appVersion: Self.appVersion,
+            buildNumber: Self.buildNumber,
+            serverVersion: runtime.account.serverVersion,
+            connectionStatus: .connected,
+            assetCount: assetCount,
+            lastMetadataRefresh: syncState?.lastIncrementalRefreshAt ?? syncState?.lastFullReconciliationAt,
+            mediaCacheBytes: stats?.disk.byteCount ?? 0,
+            memoryCacheBytes: Int64(stats?.memory.estimatedCost ?? 0),
+            inFlightMediaRequests: (stats?.inFlightByteRequests ?? 0) + (stats?.inFlightRenderRequests ?? 0),
+            queuedDecodeCount: stats?.scheduler.queuedByLane[.decode] ?? 0,
+            ratingWriteStatus: ratingAvailability == .available ? "Available" : "Unavailable",
+            originalPermissionStatus: Self.capabilityText(runtime.capabilities.originalDownload),
+            currentExportStatus: runtime.account.serverVersion?.hasPrefix("3.") == true ? "Available" : "Unverified",
+            thumbnailObservation: profile?.thumbnail,
+            previewObservation: profile?.preview,
+            fullsizeObservation: profile?.fullsize,
+            usesFixtures: false
+        )
+    }
+
     private static func connectionFailure(for error: ImmichClientError) -> ConnectionValidationFailure {
         switch error {
         case .authenticationInvalid: .invalidCredentials
@@ -224,6 +301,22 @@ final class AppEnvironment {
         case .crossOriginResponse: .transportSecurity
         case .notFound, .wrongAccount: .unknown
         }
+    }
+
+    private static func capabilityText(_ capability: CapabilityAvailability) -> String {
+        switch capability {
+        case .available: "Available"
+        case .unverified: "Unverified"
+        case .unavailable: "Unavailable"
+        }
+    }
+
+    private static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+    }
+
+    private static var buildNumber: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
     }
 }
 

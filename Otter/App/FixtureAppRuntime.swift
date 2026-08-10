@@ -1,10 +1,13 @@
 import CoreGraphics
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 struct FixtureAppRuntime: Sendable {
     let accountNamespace: UUID
     let assetStore: FixtureAssetStore
     let mediaPipeline: FixtureMediaPipeline
+    let exporter: FixtureAssetExporter
 
     static func make(configuration: FixtureLibraryConfiguration) -> FixtureAppRuntime {
         let library = FixtureLibraryGenerator.generate(configuration: configuration)
@@ -35,8 +38,60 @@ struct FixtureAppRuntime: Sendable {
         return FixtureAppRuntime(
             accountNamespace: library.account.accountNamespace,
             assetStore: FixtureAssetStore(assets: assets),
-            mediaPipeline: FixtureMediaPipeline()
+            mediaPipeline: FixtureMediaPipeline(),
+            exporter: FixtureAssetExporter()
         )
+    }
+}
+
+actor FixtureAssetExporter: AssetExporting {
+    private let root: URL
+    private let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+        root = fileManager.temporaryDirectory.appendingPathComponent("OtterFixtureExports", isDirectory: true)
+    }
+
+    func prepare(asset: MediaAssetDescriptor, variant: ExportVariant) throws -> PreparedExport {
+        let id = UUID()
+        let directory = root.appendingPathComponent(id.uuidString, isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let filename = variant == .current ? "fixture-current.png" : "fixture-original.png"
+        let url = directory.appendingPathComponent(filename)
+        guard let context = CGContext(
+            data: nil,
+            width: 64,
+            height: 64,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { throw AssetExportError.transport }
+        context.setFillColor(red: 0.18, green: 0.42, blue: 0.64, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        guard let image = context.makeImage(),
+              let destination = CGImageDestinationCreateWithURL(
+                url as CFURL,
+                UTType.png.identifier as CFString,
+                1,
+                nil
+              ) else { throw AssetExportError.transport }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { throw AssetExportError.transport }
+        return PreparedExport(
+            id: id,
+            fileURL: url,
+            filename: filename,
+            mimeType: "image/png",
+            variant: variant
+        )
+    }
+
+    func cleanup(_ export: PreparedExport) {
+        let directory = export.fileURL.deletingLastPathComponent().standardizedFileURL
+        guard directory.deletingLastPathComponent() == root.standardizedFileURL else { return }
+        try? fileManager.removeItem(at: directory)
     }
 }
 

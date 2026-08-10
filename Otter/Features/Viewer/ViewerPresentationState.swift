@@ -29,6 +29,7 @@ final class ViewerPresentationState {
     init(
         items: [ViewerItem],
         initialAssetID: UUID? = nil,
+        initialFrame: MediaFrame? = nil,
         pipeline: any MediaPipelineProtocol
     ) {
         self.items = items
@@ -37,6 +38,13 @@ final class ViewerPresentationState {
             item.rating.map { (item.id, $0) }
         })
         currentIndex = initialAssetID.flatMap { id in items.firstIndex(where: { $0.id == id }) } ?? 0
+        if let initialFrame, items.indices.contains(currentIndex) {
+            let item = items[currentIndex]
+            let key = ViewerFrameKey(assetID: item.id, variant: .current)
+            frames[key] = initialFrame
+            displayedFrames[item.id] = initialFrame
+            displayedVariants[item.id] = .current
+        }
     }
 
     var currentItem: ViewerItem? {

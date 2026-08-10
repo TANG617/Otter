@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 @MainActor
 struct ExportOptionsView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var variant: ExportVariant = .current
+    @State private var variant: ExportVariant
     @State private var actionState: ActionState = .idle
     @State private var pendingDestination: ExportDestination?
     @State private var revision: UInt64 = 0
@@ -17,11 +17,13 @@ struct ExportOptionsView: View {
 
     init(
         asset: MediaAssetDescriptor,
+        initialVariant: ExportVariant = .current,
         currentAvailable: Bool,
         exporter: any AssetExporting,
         photosExporter: any PhotosExporting = PhotosExporter()
     ) {
         self.asset = asset
+        _variant = State(initialValue: initialVariant)
         self.currentAvailable = currentAvailable
         self.exporter = exporter
         self.photosExporter = photosExporter

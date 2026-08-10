@@ -22,7 +22,7 @@ enum TimelineGridLayout {
 
 @MainActor
 struct TimelineView: View {
-    typealias Selection = @MainActor (TimelineAsset, MediaFrame?) -> Void
+    typealias Selection = @MainActor (TimelineAsset, MediaFrame?, [TimelineAsset]) -> Void
     typealias SettingsAction = @MainActor () -> Void
 
     @State private var state: TimelineState
@@ -170,7 +170,9 @@ struct TimelineView: View {
                                     index: state.assetIndices[asset.id] ?? 0,
                                     mediaClient: mediaClient,
                                     calendar: calendar,
-                                    onSelect: onSelectAsset,
+                                    onSelect: { asset, frame in
+                                        onSelectAsset(asset, frame, state.assets)
+                                    },
                                     onVisible: updatePrefetch
                                 )
                             }
