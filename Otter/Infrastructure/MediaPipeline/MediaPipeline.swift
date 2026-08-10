@@ -361,8 +361,9 @@ final class MediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                     await self.metrics.emit(.diskCommit, key: key, priority: priority, byteCount: cached.byteCount)
                     await self.metrics.emit(.networkEnd, key: key, priority: priority, byteCount: cached.byteCount)
                     return cached
-                } catch let error as MediaError {
-                    if case .httpStatus(404, _) = error {
+                } catch {
+                    if let mediaError = error as? MediaError,
+                       case .httpStatus(404, _) = mediaError {
                         await self.negativeCache.insert(key, ttl: self.retryPolicy.negativeCacheTTL)
                     }
                     guard let delay = self.retryPolicy.delay(for: error, attempt: attempt, priority: priority) else {

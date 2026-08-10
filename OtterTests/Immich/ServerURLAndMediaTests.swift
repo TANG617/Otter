@@ -38,6 +38,7 @@ struct ServerURLAndMediaTests {
         #expect(request.description.contains("super-secret") == false)
         #expect(key.description == "<redacted>")
         #expect(key.debugDescription.contains("super-secret") == false)
+        #expect(APIKey("has whitespace") == nil)
     }
 
     @Test("Current derivatives and original bytes use exact edited semantics")

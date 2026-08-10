@@ -11,6 +11,17 @@ struct MediaRetryPolicy: Sendable {
 
     func delay(for error: Error, attempt: Int, priority: MediaPriority) -> TimeInterval? {
         guard priority >= .visible, attempt < visibleRetryLimit else { return nil }
+        if error is CancellationError { return nil }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .cancelled, .notConnectedToInternet:
+                return nil
+            case .timedOut, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost:
+                return min(pow(2, Double(attempt)) * 0.25, 1)
+            default:
+                return nil
+            }
+        }
         if let mediaError = error as? MediaError {
             switch mediaError {
             case let .httpStatus(status, retryAfter) where status == 429:

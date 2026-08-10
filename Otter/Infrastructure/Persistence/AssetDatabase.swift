@@ -380,7 +380,10 @@ final class AssetDatabase: @unchecked Sendable {
         }
     }
 
-    func saveServerMediaProfile(_ profile: ServerMediaProfile) throws {
+    func saveServerMediaProfile(
+        _ profile: ServerMediaProfile,
+        accountNamespace: UUID
+    ) throws {
         let data = try JSONEncoder().encode(profile)
         try database.write { db in
             try db.execute(
@@ -389,7 +392,7 @@ final class AssetDatabase: @unchecked Sendable {
                     VALUES (?, ?)
                     ON CONFLICT(accountNamespace) DO UPDATE SET profileJSON = excluded.profileJSON
                     """,
-                arguments: [Self.id(profile.accountNamespace), data]
+                arguments: [Self.id(accountNamespace), data]
             )
         }
     }
@@ -497,5 +500,32 @@ final class AssetDatabase: @unchecked Sendable {
             visibility: row["visibility"],
             rating: ratingValue.flatMap(AssetRating.init(rawValue:))
         )
+    }
+}
+
+actor DatabaseServerMediaProfileStore: ServerMediaProfileProviding {
+    private let database: AssetDatabase
+
+    init(database: AssetDatabase) {
+        self.database = database
+    }
+
+    func profile(accountNamespace: UUID) -> ServerMediaProfile {
+        (try? database.serverMediaProfile(accountNamespace: accountNamespace)) ?? .init()
+    }
+
+    func record(
+        _ observation: RepresentationObservation,
+        for representation: RemoteRepresentation,
+        accountNamespace: UUID
+    ) {
+        var profile = (try? database.serverMediaProfile(accountNamespace: accountNamespace)) ?? .init()
+        switch representation {
+        case .thumbnail: profile.thumbnail = observation
+        case .preview: profile.preview = observation
+        case .fullsize: profile.fullsize = observation
+        case .original: return
+        }
+        try? database.saveServerMediaProfile(profile, accountNamespace: accountNamespace)
     }
 }

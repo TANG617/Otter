@@ -78,3 +78,24 @@ struct ImmichMediaEndpointBuilder: Sendable {
         }
     }
 }
+
+extension ImmichMediaEndpointBuilder: MediaRequestBuilding {
+    func urlRequest(
+        for asset: MediaAssetDescriptor,
+        variant: AssetVariant,
+        representation: RemoteRepresentation
+    ) throws -> URLRequest {
+        let immichVariant: ImmichMediaVariant = variant == .current ? .current : .original
+        let immichRepresentation: ImmichRemoteRepresentation = switch representation {
+        case .thumbnail: .thumbnail
+        case .preview: .preview
+        case .fullsize: .fullsize
+        case .original: .original
+        }
+        return try request(
+            assetID: asset.id,
+            variant: immichVariant,
+            representation: immichRepresentation
+        )
+    }
+}

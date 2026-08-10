@@ -99,10 +99,7 @@ private final class CrossOriginRedirectGuard: NSObject, URLSessionTaskDelegate, 
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
         guard Self.sameOrigin(task.originalRequest?.url, request.url) else {
-            var sanitized = request
-            sanitized.setValue(nil, forHTTPHeaderField: "x-api-key")
-            sanitized.setValue(nil, forHTTPHeaderField: "Authorization")
-            completionHandler(sanitized)
+            completionHandler(nil)
             return
         }
         completionHandler(request)

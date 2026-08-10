@@ -27,15 +27,17 @@ struct AssetDatabaseTests {
         let observation = RepresentationObservation(
             mimeType: "image/webp",
             maximumObservedDimension: 1_440,
-            byteCount: 123_456
+            byteCount: 123_456,
+            redirectsCrossOrigin: false
         )
         let profile = ServerMediaProfile(
-            accountNamespace: account.namespace,
             thumbnail: nil,
             preview: observation,
-            fullsize: nil
+            fullsize: nil,
+            supportsFullsize: true,
+            supportsOriginal: true
         )
-        try database.saveServerMediaProfile(profile)
+        try database.saveServerMediaProfile(profile, accountNamespace: account.namespace)
 
         #expect(try database.account(namespace: account.namespace) == account)
         #expect(try database.serverMediaProfile(accountNamespace: account.namespace) == profile)
