@@ -10,9 +10,9 @@
 |---|---|
 | 仓库 | `TANG617/Otter` |
 | 实现分支 | `codex/implement-otter-mvp` |
-| 本报告前代码 HEAD | `e1c9d2d89e5d7f3a2b8f340eb42b330b2bebb442` |
+| 本轮 P1 修复代码 HEAD | `4c0f8c60` |
 | Draft PR | [#1 — Implement Otter native Immich browsing MVP](https://github.com/TANG617/Otter/pull/1) |
-| 最终代码审计修复 | `59cb0c2`、`e1c9d2d` |
+| 最终代码审计修复 | `59cb0c2`、`e1c9d2d`、`4c0f8c6` |
 | 部署目标 | iOS / iPadOS 18+ |
 | 本地工具链 | Xcode 27.0 beta (`27A5228h`)、Swift 6.4、iOS 27.0 Simulator |
 | CI 工具链 | Xcode 16.4、iPhone 16 Pro、iOS 18.5、GitHub `macos-15` |
@@ -57,12 +57,16 @@
 
 - 实现合法 variant × representation 规划：Current/Original 与 thumbnail/preview/fullsize/original 的能力组合。
 - 实现 progressive frame stream：可先显示 ThumbHash/低清帧，再替换为更高质量帧。
+- ThumbHash 只作为 generated placeholder；它不会被计作真实媒体成功。所有真实 representation 失败时 Viewer 保留占位背景，同时进入明确错误/Retry 状态。
 - 缺失、损坏或不可解码 derivative 会继续尝试下一个合法 representation，不因首个 404/坏图终止整个计划。
+- preview 成功而可选 fullsize 升级失败时，preview 会被重新标记为当前需求的最终帧，不产生阻塞式 unavailable。
+- transport 记录脱敏的最终 URL 和同源 redirect hop；nominal fullsize 转向 Original 时会在跟随前拒绝、绝不写入 fullsize cache，并持久学习该服务器的 generated fullsize 为 unsupported。
+- server derivative observation 采用单调保守合并：最大维度和 byte count 不下降，MIME 跟随最高可信尺寸，跨源风险只会累积。
 - 实现 account-scoped GRDB 磁盘字节缓存和 `NSCache` 渲染缓存；cache identity 包含账户、资产、revision、variant、purpose 和 pixel bucket。
 - 实现 byte/render request coalescing、lease、负缓存、有限重试、取消传播、网络错误分类和 signpost/statistics。
 - 调度器按交互/可见/预取 lane 限流；交互请求会抑制仍在队列中的 speculative work。
 - 使用 ImageIO 检查尺寸并 downsample；Timeline、Viewer、最大 zoom 的 decode ceiling 分别为 512、3072、4096 px。
-- 磁盘清理遇到 active lease 时记录 pending deletion；lease 释放后继续删除，避免 Sign Out 后旧请求重新写回账户数据。
+- account cache clear 先推进 request epoch，再 cancel-and-await 对应 byte/render work，最后删除缓存；旧 generation 在文件、GRDB 和 render commit 边界都会被拒绝，clear 返回后不能回写。
 
 详细设计见 [Media Pipeline](media-pipeline.md)。
 
@@ -160,7 +164,9 @@ xcodebuild test \
 - metadata pagination、ID 去重、重叠窗口、周期全量 reconciliation、hard delete。
 - 10k/100k GRDB paging 和 batch merge。
 - representation planner、fallback、cache identity、coalescing、scheduler promotion、取消、retry/negative cache。
+- placeholder 失败语义、preview/fullsize 非阻塞升级、fullsize→Original 拒绝与能力学习、server profile 单调合并。
 - active lease 清理与 Sign Out 后禁止回写。
+- 使用 continuation gate 在 cache index commit 前构造 clear 竞态；scheduler 时序也由 gate/状态谓词驱动，不依赖固定 sleep。
 - Timeline pagination/grouping/prefetch bounds/cancellation。
 - Viewer progressive staging、Current/Original fallback、N±1 active window、N±2 prefetch、zoom geometry。
 - rating 串行化、read-back verification、rollback 和快速连续 mutation。
@@ -218,7 +224,7 @@ Harness 允许的网络面只有：
 
 ### 3.6 GitHub Actions iOS 18 验证
 
-[成功的最终代码 CI run 31377026122](https://github.com/TANG617/Otter/actions/runs/31377026122) 使用：
+[本轮 P1 修复前的成功基线 CI run 31377026122](https://github.com/TANG617/Otter/actions/runs/31377026122) 使用：
 
 - GitHub `macos-15`
 - Xcode 16.4
@@ -228,17 +234,19 @@ Harness 允许的网络面只有：
 - 全部 `OtterTests`
 - `testFixtureTimelineScrollViewerRatingAndExport` 关键 UI smoke
 
-这提供了独立于本机 Xcode 27 beta 的 iOS 18 编译、单测和关键 iPhone UI 证据。
+这提供了独立于本机 Xcode 27 beta 的 iOS 18 编译、单测和关键 iPhone UI 基线证据。`4c0f8c6` 及本报告提交 push 后必须等待 PR #1 最新 HEAD 的新 run；不得把该旧 run 当作本次修复的最终状态。
 
 ## 4. 测试结果
 
 | 验证项 | 结果 |
 |---|---:|
-| Unit tests | 114 discovered；111 passed；0 failed；3 live opt-in skipped |
+| Unit tests | 129 discovered；126 passed；0 failed；3 live opt-in skipped |
 | iPhone 17 Pro / iOS 27.0 UI | 5/5 passed |
 | 最终受影响 iPhone UI 复测 | 2/2 passed |
-| iPad Pro 13-inch (M5) / iOS 27.0 key UI | 2/2 passed |
-| GitHub CI / Xcode 16.4 / iOS 18.5 | Passed |
+| iPad Pro 13-inch (M5) / iOS 27.0 UI | 5/5 passed |
+| WorkScheduler 确定性重复运行 | 20 iterations；60/60 test cases passed |
+| 100k GRDB query（本轮 unit run） | 2.422 s |
+| GitHub CI / Xcode 16.4 / iOS 18.5 | 修复前基线 Passed；本次修复以 push 后最新 HEAD run 为准 |
 | Generic dual-architecture Simulator build | Passed |
 | Swift 6 complete strict concurrency build | Passed |
 | Warnings-as-errors build-for-testing | Passed for Otter source |
@@ -331,6 +339,17 @@ Harness 允许的网络面只有：
 - Sign Out/cache clear 与 active lease：pending deletion，防止清理后回写。
 - Timeline/Viewer accessibility：为 cell 和独立控件提供真实语义与稳定 ID。
 - iOS 18.5 UI automation：稳定 `Menu` 点击方式并在真实 CI runtime 复测。
+
+### 7.1 PR #1 P1 媒体与缓存正确性复查
+
+`4c0f8c6` 针对后续 review 的四组 P1 做了生产代码和确定性测试的同步修复：
+
+- placeholder 不再进入真实帧成功判定；Retry 会清除该资产的负缓存并启动新媒体请求。
+- fullsize→Original 在 transport redirect delegate 中拒绝，pipeline 根据 redirect metadata 学习并持久化 unsupported，后续资产只保留 preview 路径。
+- cache clear 使用 account request epoch 加 coordinator cancel-and-await barrier；测试在 `ByteDiskCache` index commit 前精确挂起旧写入，证明 clear 后 entry、bytes、media/staging files 均为零，并证明 clear 后新请求仍可写入。
+- `WorkSchedulerTests` 和相关 coordinator 测试移除固定 sleep，改为 continuation-backed gate 与 scheduler stats 状态谓词；20 次重复运行全部通过。
+
+本轮本地验证还包括 Swift 6 complete concurrency、warnings-as-errors、generic Simulator build、全部 unit tests、iPhone/iPad fixture UI smoke、scope regression 和 `git diff --check`。本报告不包含 API key、服务器 URL、redirect 实际地址或媒体路径。
 
 ## 8. 可复现压力运行
 
