@@ -93,7 +93,7 @@ struct TestInfrastructureTests {
 
     @Test("Wall-clock helper returns ordered summary values")
     func performanceSamples() async throws {
-        let samples = try await PerformanceTestSupport.measureWallClock(
+        let samples = await PerformanceTestSupport.measureWallClock(
             warmupCount: 0,
             iterationCount: 3
         ) {
