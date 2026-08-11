@@ -56,6 +56,11 @@ final class OtterUITests: XCTestCase {
         XCTAssertFalse(app.buttons["viewer.settings"].exists)
         XCTAssertFalse(app.buttons.matching(identifierPrefix: "library.timeline.asset.").firstMatch.exists)
 
+        showViewerChrome(in: app)
+        let download = app.buttons["viewer.download"]
+        download.tap()
+        waitForDownload(in: app, button: download)
+
         let secondThumbnail = app.buttons.matching(
             NSPredicate(format: "label == %@", "Photo 2 of 200")
         ).firstMatch
@@ -94,16 +99,101 @@ final class OtterUITests: XCTestCase {
         waitForExpectations(timeout: 5)
 
         showViewerChrome(in: app)
-        let download = app.buttons["viewer.download"]
-        download.tap()
-        let saved = NSPredicate { evaluated, _ in
-            let element = evaluated as? XCUIElement
-            return element?.label == "Photo Saved" && String(describing: element?.value).contains("Complete")
+        tapCenter(of: rating)
+        let favorite = app.descendants(matching: .any)["viewer.favorite"]
+        favorite.assertExists()
+        favorite.tap()
+        let favoriteSelected = NSPredicate { evaluated, _ in
+            (evaluated as? XCUIElement)?.value as? String == "Favourite"
         }
-        expectation(for: saved, evaluatedWith: download)
+        expectation(for: favoriteSelected, evaluatedWith: rating)
         waitForExpectations(timeout: 5)
+
+        showViewerChrome(in: app)
+        download.tap()
+        waitForDownload(in: app, button: download)
         XCTAssertFalse(app.navigationBars["Download"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["export.screen"].exists)
+
+        showViewerChrome(in: app)
+        tapCenter(of: app.buttons["viewer.close"])
+        app.navigationBars["Library"].assertExists()
+    }
+
+    @MainActor
+    func testFixtureFilmstripLoadsDistantThumbnailBeforeSelection() {
+        let app = OtterUIApplication.fixtures()
+        app.launch()
+        openFirstVisiblePhoto(in: app)
+
+        let initialMedia = app.images.matching(identifierPrefix: "viewer.media.").firstMatch
+        initialMedia.assertExists()
+        let initialIdentifier = initialMedia.identifier
+        let filmstrip = app.scrollViews["viewer.filmstrip"]
+        filmstrip.assertExists()
+        let photo20 = app.buttons["viewer.filmstrip.photo.20"]
+        for _ in 0..<4 where !photo20.exists {
+            filmstrip.swipeLeft(velocity: .fast)
+        }
+        photo20.assertExists()
+        let loaded = NSPredicate(format: "value == %@", "Thumbnail loaded")
+        expectation(for: loaded, evaluatedWith: photo20)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(
+            app.images.matching(identifierPrefix: "viewer.media.").firstMatch.identifier,
+            initialIdentifier
+        )
+
+        photo20.tap()
+        let twentieth = app.images
+            .matching(identifierPrefix: "viewer.media.")
+            .matching(NSPredicate(format: "label CONTAINS %@", "20 of"))
+            .firstMatch
+        twentieth.assertExists(timeout: 5)
+    }
+
+    @MainActor
+    func testFixtureViewerGesturePagingBounceAndDismissal() {
+        let app = OtterUIApplication.fixtures()
+        app.launch()
+        openFirstVisiblePhoto(in: app)
+
+        let initialMedia = app.images.matching(identifierPrefix: "viewer.media.").firstMatch
+        initialMedia.assertExists()
+        let initialIdentifier = initialMedia.identifier
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+            .press(
+                forDuration: 0.05,
+                thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+            )
+        let viewer = app.descendants(matching: .any)["viewer.screen"]
+        let changedPage = NSPredicate(format: "value CONTAINS %@", "Photo 2 of")
+        expectation(for: changedPage, evaluatedWith: viewer)
+        waitForExpectations(timeout: 5)
+        let currentMedia = app.images
+            .matching(identifierPrefix: "viewer.media.")
+            .matching(NSPredicate(format: "label CONTAINS %@", "2 of"))
+            .firstMatch
+        currentMedia.assertExists()
+        XCTAssertNotEqual(currentMedia.identifier, initialIdentifier)
+        let pagedIdentifier = currentMedia.identifier
+
+        currentMedia.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+            .press(
+                forDuration: 0.2,
+                thenDragTo: currentMedia.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.50))
+            )
+        app.descendants(matching: .any)["viewer.screen"].assertExists()
+        XCTAssertTrue(String(describing: viewer.value).contains("Photo 2 of"))
+        app.images[pagedIdentifier].assertExists()
+
+        let mediaAfterBounce = app.images[pagedIdentifier]
+        mediaAfterBounce.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+            .press(
+                forDuration: 0.08,
+                thenDragTo: mediaAfterBounce.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.88))
+            )
+        app.navigationBars["Library"].assertExists(timeout: 5)
     }
 
     @MainActor
@@ -253,6 +343,18 @@ final class OtterUITests: XCTestCase {
         // when the identified button has a visible frame. A direct center tap
         // exercises the same control without depending on that XCTest action.
         element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+
+    @MainActor
+    private func waitForDownload(in app: XCUIApplication, button: XCUIElement) {
+        let saved = NSPredicate { evaluated, _ in
+            let element = evaluated as? XCUIElement
+            return element?.label == "Photo Saved"
+                && String(describing: element?.value).contains("Complete")
+        }
+        expectation(for: saved, evaluatedWith: button)
+        waitForExpectations(timeout: 5)
+        XCTAssertFalse(app.navigationBars["Download"].exists)
     }
 
     @MainActor

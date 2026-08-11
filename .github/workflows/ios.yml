@@ -45,22 +45,28 @@ jobs:
 
       - name: Unit tests
         run: |
+          unit_results="$RUNNER_TEMP/OtterUnitTests.xcresult"
           xcodebuild test \
             -project Otter.xcodeproj \
             -scheme Otter \
             -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5' \
             -derivedDataPath .build/DerivedData \
             -clonedSourcePackagesDirPath .build/SourcePackages \
+            -resultBundlePath "$unit_results" \
             -only-testing:OtterTests \
             CODE_SIGNING_ALLOWED=NO
+          scripts/assert-xcresult-tests.sh "$unit_results" 1
 
       - name: Fixture UI smoke
         run: |
+          ui_results="$RUNNER_TEMP/OtterUITests.xcresult"
           xcodebuild test \
             -project Otter.xcodeproj \
             -scheme Otter \
             -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5' \
             -derivedDataPath .build/DerivedData \
             -clonedSourcePackagesDirPath .build/SourcePackages \
-            -only-testing:OtterUITests/OtterUITests/testFixtureTimelineScrollViewerRatingAndExport \
+            -resultBundlePath "$ui_results" \
+            -only-testing:OtterUITests/OtterUITests \
             CODE_SIGNING_ALLOWED=NO
+          scripts/assert-xcresult-tests.sh "$ui_results" 9
