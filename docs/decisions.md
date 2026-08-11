@@ -91,7 +91,7 @@ Current and Original are first-class `AssetVariant`s with separate cache identit
 ## D-006 — Download asks which rendition to export
 
 **Date:** 2026-08-10
-**Status:** Accepted
+**Status:** Superseded by D-030
 
 Download/export must let the user choose:
 
@@ -335,6 +335,8 @@ SwiftUI owns the fullscreen shell and overlays. A reusable UIKit surface owns ho
 
 Current and Original exports use explicit foreground, file-backed `URLSession` download work. The MVP does not persist a background-transfer system. Current and Original are always user choices and are never silently substituted.
 
+The destination and interaction details are amended by D-030; the file-backed transfer and no-substitution rules remain accepted.
+
 ---
 
 ## D-024 — Release networking keeps platform trust and narrow ATS policy
@@ -384,6 +386,8 @@ In Immich v3.1.0 the rating field supports `-1`, `1...5`, and `null`, but the on
 
 Otter isolates that operation as an optional capability. Optimistic UI always rolls back on failure, and a successful response is followed by an asset read to verify the persisted rating. Read-only external libraries and credentials without `asset.update` surface a precise unavailable state. Rating never changes media content identity.
 
+The write-editor choices are narrowed by D-031; the server read contract and verified-write behavior remain accepted.
+
 ---
 
 ## D-028 — Timeline date and ordering are deterministic
@@ -401,6 +405,32 @@ Timeline grouping uses Immich `localDateTime` first. It falls back to `fileCreat
 **Status:** Accepted
 
 The documented example `invalidate(assetID:)` is insufficient because asset UUIDs can collide across accounts. The implemented pipeline accepts the account namespace together with the asset ID. Disk clearing has explicit account-scoped and global operations; sign out always clears session/render state and does not expose the previous account's frames.
+
+---
+
+## D-030 — Viewer-selected rendition downloads directly to Photos
+
+**Date:** 2026-08-11
+**Status:** Accepted
+
+The Viewer owns the explicit Current/Original selection. Pressing Download immediately starts a foreground, file-backed export of that selected rendition and saves it to Photos using add-only authorization. The core flow has no second rendition/destination sheet and no Files destination.
+
+The selected asset ID and rendition are captured at task start. Switching photos, leaving the Viewer, or signing out cancels the consumer; stale completion cannot update the new photo. Current and Original are never silently substituted. Export remains separate from the disposable media cache.
+
+**Reason:** The rendition is already visible and explicit in Viewer chrome. Re-asking adds friction and weakens the direct, native Photos interaction model.
+
+---
+
+## D-031 — Rating editor writes Unrated or one through five stars
+
+**Date:** 2026-08-11
+**Status:** Accepted
+
+The rating editor exposes only Unrated and 1–5 stars. It does not expose a Reject write action. The domain and persistence layers continue to decode and retain Immich's existing `-1` value; a rejected asset is displayed as Rejected and the user may change it to an allowed editor value.
+
+Favourite is an independent Boolean metadata field. Rating and Favourite mutations for one asset are serialized, verified by read-back, and roll back only their own optimistic field on failure. Neither field changes byte/render cache identity.
+
+**Reason:** This preserves compatibility with existing server data while keeping the primary rating interaction aligned with the intended product choices.
 
 ---
 

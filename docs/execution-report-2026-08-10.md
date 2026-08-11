@@ -1,5 +1,7 @@
 # 本轮执行报告（2026-08-10）
 
+> 这是 8 月 10 日实施轮次的历史证据。8 月 11 日接受的 D-030/D-031 已更新下述产品语义；当前状态以 `implementation-status.md` 为准。
+
 本文是 Otter MVP 本轮实现、验证与交付证据的单一入口。它记录已经完成的功能、测试方法与结果、性能和内存指标、只读真实服务验证、最终审计修复以及尚未完成的发布门槛。
 
 本文已做脱敏处理：**不包含 API key、服务器地址、实时响应正文或任何可识别的媒体内容**。真实服务器验证全程遵守用户授权的只读边界。
@@ -86,11 +88,11 @@
 - UIKit `UIScrollView` surface 提供 fit、pinch zoom、pan、double tap、旋转后状态保持。
 - zoom 请求按 pixel bucket 升级；同 quality 但更大像素面的 frame 不会被错误丢弃。
 - 提供 Info、Settings、关闭、评分和导出入口；分页位置和评分标签具有可访问语义。
-- 评分菜单支持 Unrated、Reject、1…5，并即时更新 UI；持久化失败会恢复原值并显示错误。
+- 评分菜单支持 Unrated、1…5；已有服务器 `-1` 仍显示为 Rejected，但不作为写入选项。Favourite 独立写入；失败只回滚对应字段。
 
 ### 2.7 导出、设置和诊断
 
-- Current/Original 导出语义明确；用户显式选择 Photos 或 Files。
+- Current/Original 在 Viewer 中显式选择；下载按钮直接写入 Photos，不再显示目标/版本二次 sheet，也没有 Files 核心流程。
 - 导出前检查 representation 可用性；不可用时显示明确原因，不做静默替代。
 - URLSession download 临时文件在回调作用域内立即移动到受控临时位置。
 - Settings 支持 cache limit、清缓存、Diagnostics 和 Sign Out。
@@ -170,7 +172,7 @@ xcodebuild test \
 - Timeline pagination/grouping/prefetch bounds/cancellation。
 - Viewer progressive staging、Current/Original fallback、N±1 active window、N±2 prefetch、zoom geometry。
 - rating 串行化、read-back verification、rollback 和快速连续 mutation。
-- export destination/variant 和 unavailable state。
+- Viewer-selected direct Photos download、variant capability、取消清理和 unavailable state。
 - session、401 invalidation、account isolation、Keychain 和诊断脱敏。
 
 ### 3.3 Fixture UI tests
@@ -184,7 +186,7 @@ scripts/run-ui-smoke-tests.sh
 脚本依次在 `iPhone 17 Pro` 和 `iPad Pro 13-inch (M5)` 上运行 `OtterUITests`。核心自动化场景：
 
 1. Signed-out 启动，验证 Onboarding 可用和可访问。
-2. Fixture Timeline 启动、滚动、打开 Viewer、翻页、评分、Current/Original/Export 入口。
+2. Fixture Timeline 启动、滚动、打开 Viewer、翻页、评分/Favourite、Current/Original 和直接 Photos 下载。
 3. 评分失败时 UI 和持久状态回滚。
 4. Current export 不可用时显示明确失败，不静默导出其他版本。
 5. Settings、Diagnostics、cache 操作、旋转和 Sign Out。
@@ -232,7 +234,7 @@ Harness 允许的网络面只有：
 - Swift package resolve
 - generic iOS Simulator build
 - 全部 `OtterTests`
-- `testFixtureTimelineScrollViewerRatingAndExport` 关键 UI smoke
+- 完整 `OtterUITests/OtterUITests` fixture UI suite，并从 `.xcresult` 验证执行数量非零且达到预期
 
 这提供了独立于本机 Xcode 27 beta 的 iOS 18 编译、单测和关键 iPhone UI 基线证据。`4c0f8c6` 及本报告提交 push 后必须等待 PR #1 最新 HEAD 的新 run；不得把该旧 run 当作本次修复的最终状态。
 
@@ -267,7 +269,7 @@ Harness 允许的网络面只有：
 6. Sign Out 后检查本地数据：`accounts=0`、`assets=0`、`syncStates=0`。
 7. 媒体缓存目录仅剩 cache SQLite 元数据文件，没有媒体 byte files；Onboarding 字段为空。
 
-严格未执行：rating、Original、Photos/Files export、download info/archive，或任何其他服务器 mutation。系统弹出的保存密码提示选择了 `Not Now`，未把凭据交给系统密码保存流程。
+严格未执行：rating、Original、Photos download、download info/archive，或任何其他服务器 mutation。系统弹出的保存密码提示选择了 `Not Now`，未把凭据交给系统密码保存流程。
 
 ## 6. 性能与内存
 
@@ -389,7 +391,7 @@ xcrun simctl launch booted com.tang617.otter \
 1. 在代表性真机 iPhone/iPad 上运行 Time Profiler、Animation Hitches、Allocations 和 Leaks。
 2. 在 iOS 18.x 真机或本地 runtime 上补全 iPad UI、内存和性能回归；当前 CI 已覆盖 iOS 18.5 iPhone build/unit/关键 UI。
 3. 在真机验证 12 MP/48 MP、JPEG/PNG/HEIF/WebP、corrupt payload、网络丢失、429 和 constrained-memory。
-4. 验证 Photos 对 WebP/current derivative 的实际保存行为；Files 导出不受此项阻塞。
+4. 验证 Photos 对 WebP/current derivative 的实际保存行为。
 5. 在稳定 LAN 上采集不含 UI automation/AX sampling 的 cold/warm live 性能。
 6. Immich major version 超过 3 时必须重新做 capability probe 和 contract 回归；不能假定 v3 行为永久不变。
 

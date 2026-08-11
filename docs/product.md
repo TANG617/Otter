@@ -57,18 +57,20 @@ The product should optimize **perceived latency**, not merely raw network throug
 
 ### Rating
 
-- Read and write the rating supported by the connected Immich server.
+- Read Immich ratings including existing Rejected (`-1`) metadata.
+- The editor writes only Unrated or 1–5 stars; Rejected remains displayable and can be changed, but is not a write choice.
+- Favourite is a separate Boolean action and is not a rating value.
 - Rating is a metadata mutation only; it MUST NOT invalidate photo pixel caches unless the server indicates media content itself changed.
 - Filtering by rating is desirable after the core viewer is stable.
 
 ### Download / export
 
-The user explicitly chooses the desired asset version when downloading:
+The user explicitly chooses the desired asset version in the Viewer:
 
 - **Current Version** — the current edited rendition when supported.
 - **Original** — the original imported file.
 
-The application MUST NOT silently substitute Original when Current Version is requested but unavailable. The UI should explain that the requested rendition cannot be exported on that server/version.
+Pressing Download immediately saves that selected rendition to Photos with add-only permission. There is no second rendition/destination sheet in the core flow. The application MUST NOT silently substitute Original when Current Version is requested but unavailable, or Current when Original is unavailable. The UI explains that the selected rendition cannot be exported on that connection.
 
 Downloads are user-initiated exports, not a synchronization system.
 
@@ -136,7 +138,7 @@ cache miss -> show placeholder / unavailable state
 
 No user-visible promise should imply that cached media is a durable local copy.
 
-A file produced by an explicit Download action is different: once exported to Photos or Files, it is user-owned persistent output and is no longer part of Otter's disposable media cache.
+A file produced by an explicit Download action is different: once saved to Photos, it is user-owned persistent output and is no longer part of Otter's disposable media cache.
 
 ---
 
