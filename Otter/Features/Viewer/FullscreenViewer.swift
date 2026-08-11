@@ -821,12 +821,12 @@ private final class ViewerPresentationValues {
     var dismissalTranslation: CGFloat = 0
 }
 
-private struct ViewerPresentationValueObserver: @preconcurrency AnimatableModifier {
+private struct ViewerPresentationValueObserver: AnimatableModifier {
     var pageTranslation: CGFloat
     var dismissalTranslation: CGFloat
     let onChange: @MainActor @Sendable (CGFloat, CGFloat) -> Void
 
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+    nonisolated var animatableData: AnimatablePair<CGFloat, CGFloat> {
         get { AnimatablePair(pageTranslation, dismissalTranslation) }
         set {
             pageTranslation = newValue.first
