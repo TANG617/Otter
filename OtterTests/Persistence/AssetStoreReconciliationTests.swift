@@ -48,10 +48,183 @@ private actor QueuedAssetRemote: AssetRemoteDataSource {
             throw ImmichClientError.permissionDenied
         }
     }
+
+    func writeFavorite(_ isFavorite: Bool, assetID: UUID, accountNamespace: UUID) async throws {
+        if writeBehavior == .permissionDenied {
+            throw ImmichClientError.permissionDenied
+        }
+    }
+}
+
+private actor PausingAssetRemote: AssetRemoteDataSource {
+    private let firstPage: AssetSearchPage
+    private let secondPage: AssetSearchPage
+    private let failsOnSecondPage: Bool
+    private let secondPageGate: AsyncStream<Void>
+    private let secondPageGateContinuation: AsyncStream<Void>.Continuation
+    private var requestCount = 0
+    private var observedCancellation = false
+
+    init(
+        firstPage: AssetSearchPage,
+        secondPage: AssetSearchPage,
+        failsOnSecondPage: Bool = false
+    ) {
+        self.firstPage = firstPage
+        self.secondPage = secondPage
+        self.failsOnSecondPage = failsOnSecondPage
+        let gate = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        secondPageGate = gate.stream
+        secondPageGateContinuation = gate.continuation
+    }
+
+    func searchAssets(_ request: AssetSearchRequest, accountNamespace: UUID) async throws -> AssetSearchPage {
+        requestCount += 1
+        guard requestCount > 1 else { return firstPage }
+
+        for await _ in secondPageGate { break }
+        if Task.isCancelled {
+            observedCancellation = true
+            throw CancellationError()
+        }
+        if failsOnSecondPage {
+            throw TestFailure.secondPage
+        }
+        return secondPage
+    }
+
+    func asset(id: UUID, accountNamespace: UUID) async throws -> TimelineAsset {
+        throw ImmichClientError.notFound
+    }
+
+    func writeRating(_ rating: AssetRating?, assetID: UUID, accountNamespace: UUID) async throws {}
+
+    func resumeSecondPage() {
+        secondPageGateContinuation.yield(())
+        secondPageGateContinuation.finish()
+    }
+
+    func cancellationWasObserved() -> Bool {
+        observedCancellation
+    }
+
+    enum TestFailure: Error, Sendable {
+        case secondPage
+    }
 }
 
 @Suite("Local-first search reconciliation")
 struct AssetStoreReconciliationTests {
+    @Test("Refresh stream exposes the first committed batch before the final page")
+    func progressiveFirstBatch() async throws {
+        let database = try makeDatabase()
+        let first = TestAssetFactory.asset(id: TestAssetFactory.deterministicID(1))
+        let second = TestAssetFactory.asset(id: TestAssetFactory.deterministicID(2))
+        let remote = PausingAssetRemote(
+            firstPage: AssetSearchPage(assets: [first], nextContinuation: "2"),
+            secondPage: AssetSearchPage(assets: [second], nextContinuation: nil)
+        )
+        let store = LocalFirstAssetStore(database: database, remote: remote)
+        var iterator = store.refreshEvents(
+            accountNamespace: TestAssetFactory.accountNamespace,
+            mode: .bootstrap
+        ).makeAsyncIterator()
+
+        let connecting = try #require(await iterator.next())
+        let firstBatch = try #require(await iterator.next())
+        #expect(connecting == .progress(progress(.connecting, processed: 0, stored: 0)))
+        #expect(firstBatch == .progress(progress(.showingLatest, processed: 1, stored: 1)))
+        #expect(try database.count(accountNamespace: TestAssetFactory.accountNamespace) == 1)
+
+        await remote.resumeSecondPage()
+        var remaining: [AssetRefreshEvent] = []
+        while let event = try await iterator.next() {
+            remaining.append(event)
+        }
+
+        let progressValues = ([connecting, firstBatch] + remaining).compactMap { event -> AssetRefreshProgress? in
+            guard case let .progress(progress) = event else { return nil }
+            return progress
+        }
+        #expect(progressValues.map(\.stage) == [.connecting, .showingLatest, .organizing, .completed])
+        #expect(progressValues.map(\.processedCount) == [0, 1, 2, 2])
+        #expect(
+            zip(progressValues, progressValues.dropFirst()).allSatisfy { pair in
+                pair.0.processedCount <= pair.1.processedCount
+            }
+        )
+        #expect(progressValues.dropLast().allSatisfy { $0.totalCount == nil })
+        #expect(try database.count(accountNamespace: TestAssetFactory.accountNamespace) == 2)
+        #expect(remaining.contains(.completed(AssetRefreshResult(
+            receivedCount: 2,
+            storedCount: 2,
+            deletedCount: 0,
+            highestObservedUpdatedAt: max(first.updatedAt, second.updatedAt)
+        ))))
+    }
+
+    @Test("Ending the only refresh consumer cancels pending remote work")
+    func refreshConsumerRelease() async throws {
+        let database = try makeDatabase()
+        let first = TestAssetFactory.asset(id: TestAssetFactory.deterministicID(1))
+        let remote = PausingAssetRemote(
+            firstPage: AssetSearchPage(assets: [first], nextContinuation: "2"),
+            secondPage: AssetSearchPage(assets: [], nextContinuation: nil)
+        )
+        let store = LocalFirstAssetStore(database: database, remote: remote)
+
+        let consumer = Task {
+            for try await _ in store.refreshEvents(
+                accountNamespace: TestAssetFactory.accountNamespace,
+                mode: .bootstrap
+            ) {}
+        }
+        for _ in 0..<100 {
+            if try database.count(accountNamespace: TestAssetFactory.accountNamespace) == 1 { break }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        consumer.cancel()
+        _ = try? await consumer.value
+
+        for _ in 0..<100 {
+            if await remote.cancellationWasObserved() { break }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(await remote.cancellationWasObserved())
+        #expect(try database.count(accountNamespace: TestAssetFactory.accountNamespace) == 1)
+    }
+
+    @Test("A later refresh failure keeps the first committed batch and never reports completion")
+    func progressiveFailurePreservesContent() async throws {
+        let database = try makeDatabase()
+        let first = TestAssetFactory.asset(id: TestAssetFactory.deterministicID(1))
+        let remote = PausingAssetRemote(
+            firstPage: AssetSearchPage(assets: [first], nextContinuation: "2"),
+            secondPage: AssetSearchPage(assets: [], nextContinuation: nil),
+            failsOnSecondPage: true
+        )
+        await remote.resumeSecondPage()
+        let store = LocalFirstAssetStore(database: database, remote: remote)
+        var events: [AssetRefreshEvent] = []
+        var failed = false
+
+        do {
+            for try await event in store.refreshEvents(
+                accountNamespace: TestAssetFactory.accountNamespace,
+                mode: .bootstrap
+            ) {
+                events.append(event)
+            }
+        } catch is PausingAssetRemote.TestFailure {
+            failed = true
+        }
+
+        #expect(failed)
+        #expect(events.contains(.progress(progress(.showingLatest, processed: 1, stored: 1))))
+        #expect(!events.contains { if case .completed = $0 { true } else { false } })
+        #expect(try database.count(accountNamespace: TestAssetFactory.accountNamespace) == 1)
+    }
+
     @Test("Bootstrap deduplicates overlapping pages and keeps newest metadata")
     func bootstrapMerge() async throws {
         let database = try makeDatabase()
@@ -221,9 +394,61 @@ struct AssetStoreReconciliationTests {
         #expect(await repository.writeAvailability == .unavailable)
     }
 
+    @Test("Verified Favourite write commits server state")
+    func favoriteVerified() async throws {
+        let database = try makeDatabase()
+        let local = TestAssetFactory.asset(id: TestAssetFactory.deterministicID(11))
+        let verified = TestAssetFactory.asset(id: local.id, isFavorite: true)
+        try database.upsertAssets([local], accountNamespace: local.accountNamespace)
+        let remote = QueuedAssetRemote(details: [local.id: verified])
+        let repository = RatingRepository(database: database, remote: remote)
+
+        let result = try await repository.setFavorite(
+            true,
+            assetID: local.id,
+            accountNamespace: local.accountNamespace
+        )
+
+        #expect(result.previousValue == false)
+        #expect(result.asset.isFavorite)
+        #expect(try database.asset(id: local.id, accountNamespace: local.accountNamespace)?.isFavorite == true)
+    }
+
+    @Test("Favourite permission failure rolls back and disables metadata writes")
+    func favoriteRollback() async throws {
+        let database = try makeDatabase()
+        let local = TestAssetFactory.asset(id: TestAssetFactory.deterministicID(12))
+        try database.upsertAssets([local], accountNamespace: local.accountNamespace)
+        let remote = QueuedAssetRemote(writeBehavior: .permissionDenied)
+        let repository = RatingRepository(database: database, remote: remote)
+
+        await #expect(throws: ImmichClientError.permissionDenied) {
+            try await repository.setFavorite(
+                true,
+                assetID: local.id,
+                accountNamespace: local.accountNamespace
+            )
+        }
+        #expect(try database.asset(id: local.id, accountNamespace: local.accountNamespace)?.isFavorite == false)
+        #expect(await repository.writeAvailability == .unavailable)
+    }
+
     private func makeDatabase() throws -> AssetDatabase {
         let database = try AssetDatabase.inMemory()
         try database.saveAccount(TestAssetFactory.account())
         return database
+    }
+
+    private func progress(
+        _ stage: AssetRefreshProgress.Stage,
+        processed: Int,
+        stored: Int
+    ) -> AssetRefreshProgress {
+        AssetRefreshProgress(
+            stage: stage,
+            processedCount: processed,
+            storedCount: stored,
+            totalCount: nil
+        )
     }
 }

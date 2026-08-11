@@ -150,6 +150,35 @@ actor FixtureAssetStore: AssetStore {
         return updated
     }
 
+    func setFavorite(_ isFavorite: Bool, assetID: UUID) -> TimelineAsset? {
+        guard let index = FixtureLibraryGenerator.index(for: assetID), index < assetCount else { return nil }
+        let old = overrides[assetID] ?? asset(at: index)
+        let updated = TimelineAsset(
+            accountNamespace: old.accountNamespace,
+            id: old.id,
+            ownerID: old.ownerID,
+            mediaType: old.mediaType,
+            localDateTime: old.localDateTime,
+            fileCreatedAt: old.fileCreatedAt,
+            createdAt: old.createdAt,
+            updatedAt: old.updatedAt,
+            width: old.width,
+            height: old.height,
+            thumbhash: old.thumbhash,
+            checksum: old.checksum,
+            originalFileName: old.originalFileName,
+            originalMimeType: old.originalMimeType,
+            isFavorite: isFavorite,
+            isEdited: old.isEdited,
+            isArchived: old.isArchived,
+            isTrashed: old.isTrashed,
+            visibility: old.visibility,
+            rating: old.rating
+        )
+        overrides[assetID] = updated
+        return updated
+    }
+
     private func asset(at index: Int) -> TimelineAsset {
         let item = FixtureLibraryGenerator.makeItem(at: index)
         return overrides[item.id] ?? TimelineAsset(
@@ -221,7 +250,7 @@ final class FixtureMediaPipeline: MediaPipelineProtocol, @unchecked Sendable {
                         MediaFrame(
                             surface: surface,
                             quality: self.quality(for: request),
-                            source: .generatedPlaceholder,
+                            source: .network,
                             isFinalForCurrentDemand: true
                         )
                     )

@@ -5,9 +5,12 @@ struct TimelineMediaCell: View {
     let asset: TimelineAsset
     let index: Int
     let mediaClient: TimelineMediaClient
+    let transitionNamespace: Namespace.ID
     let onSelect: @MainActor (TimelineAsset, MediaFrame?) -> Void
     let onVisible: @MainActor (Int, Double, Double) -> Void
 
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.displayScale) private var displayScale
     @State private var frame: MediaFrame?
     @State private var loadFailed = false
@@ -19,12 +22,14 @@ struct TimelineMediaCell: View {
         index: Int,
         mediaClient: TimelineMediaClient,
         calendar: Calendar,
+        transitionNamespace: Namespace.ID,
         onSelect: @escaping @MainActor (TimelineAsset, MediaFrame?) -> Void,
         onVisible: @escaping @MainActor (Int, Double, Double) -> Void
     ) {
         self.asset = asset
         self.index = index
         self.mediaClient = mediaClient
+        self.transitionNamespace = transitionNamespace
         self.onSelect = onSelect
         self.onVisible = onVisible
         accessibilityLabel = TimelineAccessibilityLabel.asset(asset, calendar: calendar)
@@ -50,6 +55,7 @@ struct TimelineMediaCell: View {
                         Image(decorative: frame.surface.cgImage, scale: displayScale)
                             .resizable()
                             .scaledToFill()
+                            .id("\(frame.quality.rawValue).\(frame.source.rawValue)")
                             .transition(.opacity)
                     } else if loadFailed {
                         Image(systemName: "photo")
@@ -66,6 +72,7 @@ struct TimelineMediaCell: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .matchedTransitionSource(id: asset.id, in: transitionNamespace)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityIdentifier(TimelineAccessibilityID.asset(asset.id))
             .task(id: request) {
@@ -83,9 +90,20 @@ struct TimelineMediaCell: View {
                 Spacer()
                 Image(systemName: rating == .rejected ? "xmark" : "star.fill")
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(5)
-                    .background(.black.opacity(0.62), in: Circle())
+                    .foregroundStyle(.primary)
+                    .frame(width: 24, height: 24)
+                    .background {
+                        if reduceTransparency {
+                            Circle().fill(Color(uiColor: .secondarySystemBackground))
+                        } else {
+                            Circle().fill(.thinMaterial)
+                        }
+                    }
+                    .overlay {
+                        if colorSchemeContrast == .increased {
+                            Circle().stroke(.primary.opacity(0.8), lineWidth: 1)
+                        }
+                    }
                     .padding(5)
             }
             Spacer()

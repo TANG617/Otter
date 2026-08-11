@@ -106,6 +106,21 @@ struct ImmichClient: AssetRemoteDataSource, Sendable {
         _ = try await perform(request)
     }
 
+    func writeFavorite(
+        _ isFavorite: Bool,
+        assetID: UUID,
+        accountNamespace: UUID
+    ) async throws {
+        try validate(accountNamespace: accountNamespace)
+        let body = try ImmichJSON.encoder().encode(FavoriteUpdateBody(isFavorite: isFavorite))
+        let request = try requestBuilder.request(
+            method: "PUT",
+            pathComponents: ["assets", assetID.uuidString.lowercased()],
+            body: body
+        )
+        _ = try await perform(request)
+    }
+
     private func validate(accountNamespace: UUID) throws {
         guard accountNamespace == self.accountNamespace else {
             throw ImmichClientError.wrongAccount

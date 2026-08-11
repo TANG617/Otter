@@ -141,6 +141,7 @@
 		007044707FEFDC4A84F0474A /* LiveImmichTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveImmichTests.swift; sourceTree = "<group>"; };
 		00BEF1644881084C1B3E5E4B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		015E9C64A4BF072523F41885 /* PrefetchToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrefetchToken.swift; sourceTree = "<group>"; };
+		01DAB67FC28E265D69D50328 /* Otter.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Otter.entitlements; sourceTree = "<group>"; };
 		02101195F508B7389B0D387A /* LiveServerConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveServerConfigurationTests.swift; sourceTree = "<group>"; };
 		025F7D8C5FA3B92873D33A3D /* ActiveAccountStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveAccountStoreTests.swift; sourceTree = "<group>"; };
 		060D48DFAEFE442CFD5DF0CA /* PerformanceTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceTestSupport.swift; sourceTree = "<group>"; };
@@ -548,6 +549,7 @@
 			children = (
 				14BB813EF5D69F4975536F38 /* Assets.xcassets */,
 				DEA8B04CC51F7870A46D9AB3 /* Info.plist */,
+				01DAB67FC28E265D69D50328 /* Otter.entitlements */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -816,6 +818,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					FC45C1A7DC8B8C5E4797F811 = {
+						DevelopmentTeam = PRTA2MGMQH;
+						ProvisioningStyle = Automatic;
+					};
 					FDD72B4487496B81C1BD2ACE = {
 						TestTargetID = FC45C1A7DC8B8C5E4797F811;
 					};
@@ -1007,7 +1013,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Otter/Resources/Otter.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = PRTA2MGMQH;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Otter/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Otter;
@@ -1176,7 +1185,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Otter/Resources/Otter.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = PRTA2MGMQH;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Otter/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Otter;

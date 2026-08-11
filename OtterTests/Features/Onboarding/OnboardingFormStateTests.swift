@@ -4,6 +4,30 @@ import Testing
 
 @Suite("Onboarding form state")
 struct OnboardingFormStateTests {
+    @Test("Debug test credentials prefill a valid connection form")
+    func prefillsTestCredentials() {
+        let form = OnboardingFormState.testDefaults(environment: [
+            "OTTER_TEST_SERVER_URL": " https://photos.example.com/ ",
+            "OTTER_TEST_API_KEY": " test-key "
+        ])
+
+        #expect(form.serverURLText == "https://photos.example.com/")
+        #expect(form.apiKeyText == "test-key")
+        #expect(form.canValidateConnection)
+    }
+
+    @Test("Incomplete or invalid test credentials never partially prefill the form", arguments: [
+        ["OTTER_TEST_SERVER_URL": "https://photos.example.com"],
+        ["OTTER_TEST_API_KEY": "test-key"],
+        ["OTTER_TEST_SERVER_URL": "ftp://photos.example.com", "OTTER_TEST_API_KEY": "test-key"],
+        ["OTTER_TEST_SERVER_URL": "https://photos.example.com", "OTTER_TEST_API_KEY": "two values"]
+    ])
+    func rejectsUnsafeTestCredentialDefaults(environment: [String: String]) {
+        let form = OnboardingFormState.testDefaults(environment: environment)
+
+        #expect(form == OnboardingFormState())
+    }
+
     @Test("Server input defaults to HTTPS and removes trailing slashes")
     func normalizesServerURL() {
         var form = OnboardingFormState()
@@ -57,7 +81,7 @@ struct OnboardingFormStateTests {
         #expect(form.connectionState == .idle)
     }
 
-    @Test("Current validation result updates connection state")
+    @Test("Successful validation waits for secure activation before connecting")
     func appliesCurrentValidationResult() {
         var form = OnboardingFormState(
             serverURLText: "https://example.com",
@@ -70,6 +94,35 @@ struct OnboardingFormStateTests {
         let applied = form.completeValidation(.connected(summary), revision: revision)
 
         #expect(applied)
+        #expect(form.connectionState == .activating(summary))
+        #expect(!form.canValidateConnection)
+
+        let activated = form.completeActivation(.activated, revision: revision)
+
+        #expect(activated)
         #expect(form.connectionState == .connected(summary))
+    }
+
+    @Test("Activation failure remains on onboarding with an actionable error")
+    func surfacesActivationFailure() {
+        var form = OnboardingFormState(
+            serverURLText: "https://example.com",
+            apiKeyText: "value-without-whitespace"
+        )
+        form.beginValidation()
+        let revision = form.validationRevision
+        let summary = ConnectedServerSummary(serverVersion: "3.1.0", accountDisplayName: "Server")
+        let validated = form.completeValidation(.connected(summary), revision: revision)
+        #expect(validated)
+
+        let completed = form.completeActivation(
+            .failed(.credentialStorage),
+            revision: revision
+        )
+
+        #expect(completed)
+        #expect(form.connectionState == .failed(.credentialStorage))
+        #expect(form.canValidateConnection)
+        #expect(ConnectionValidationFailure.credentialStorage.presentation.title == "Couldn’t Secure Account")
     }
 }

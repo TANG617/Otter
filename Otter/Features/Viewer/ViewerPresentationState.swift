@@ -9,6 +9,7 @@ final class ViewerPresentationState {
 
     private let pipeline: any MediaPipelineProtocol
     private var frameTasks: [ViewerFrameKey: Task<Void, Never>] = [:]
+    private var requestTokens: [ViewerFrameKey: UUID] = [:]
     private var edgePrefetch: PrefetchToken?
     private var frames: [ViewerFrameKey: MediaFrame] = [:]
     private var displayedFrames: [UUID: MediaFrame] = [:]
@@ -16,6 +17,7 @@ final class ViewerPresentationState {
     private var pendingFrames: [ViewerFrameKey: MediaFrame] = [:]
     private var errors: [ViewerFrameKey: String] = [:]
     private var ratings: [UUID: AssetRating]
+    private var favorites: [UUID: Bool]
     private var explicitRetries: Set<ViewerFrameKey> = []
     private var isStarted = false
     private var viewport = PixelSize(width: 0, height: 0)
@@ -39,6 +41,7 @@ final class ViewerPresentationState {
         ratings = Dictionary(uniqueKeysWithValues: items.compactMap { item in
             item.rating.map { (item.id, $0) }
         })
+        favorites = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0.isFavorite) })
         currentIndex = initialAssetID.flatMap { id in items.firstIndex(where: { $0.id == id }) } ?? 0
         if let initialFrame, items.indices.contains(currentIndex) {
             let item = items[currentIndex]
@@ -88,9 +91,18 @@ final class ViewerPresentationState {
         ratings[assetID]
     }
 
+    func isFavorite(_ assetID: UUID) -> Bool {
+        favorites[assetID] ?? false
+    }
+
     func setRating(_ rating: AssetRating?, for assetID: UUID) {
         guard items.contains(where: { $0.id == assetID }) else { return }
         ratings[assetID] = rating
+    }
+
+    func setFavorite(_ isFavorite: Bool, for assetID: UUID) {
+        guard items.contains(where: { $0.id == assetID }) else { return }
+        favorites[assetID] = isFavorite
     }
 
     func append(_ incoming: [ViewerItem]) {
@@ -100,6 +112,7 @@ final class ViewerPresentationState {
         items.append(contentsOf: additions)
         for item in additions {
             if let rating = item.rating { ratings[item.id] = rating }
+            favorites[item.id] = item.isFavorite
         }
         reconcileRequests()
     }
@@ -116,6 +129,7 @@ final class ViewerPresentationState {
         edgePrefetch?.cancel()
         edgePrefetch = nil
         frameTasks.removeAll()
+        requestTokens.removeAll()
         activeRequests.removeAll()
     }
 
@@ -174,6 +188,7 @@ final class ViewerPresentationState {
         let key = ViewerFrameKey(assetID: currentItem.id, variant: selectedVariant)
         errors.removeValue(forKey: key)
         frameTasks.removeValue(forKey: key)?.cancel()
+        requestTokens.removeValue(forKey: key)
         activeRequests.removeValue(forKey: key)
         explicitRetries.insert(key)
         reconcileRequests()
@@ -203,20 +218,33 @@ final class ViewerPresentationState {
             let stream = explicitRetries.remove(key) != nil
                 ? pipeline.retryFrames(for: request)
                 : pipeline.frames(for: request)
+            let requestToken = UUID()
             activeRequests[key] = request
+            requestTokens[key] = requestToken
             frameTasks[key] = Task { [weak self] in
                 do {
                     for try await frame in stream {
                         guard !Task.isCancelled else { return }
                         self?.receive(frame, key: key)
                     }
-                    self?.finishRequest(key: key, request: request, error: nil)
+                    self?.finishRequest(
+                        key: key,
+                        request: request,
+                        token: requestToken,
+                        error: nil
+                    )
                 } catch is CancellationError {
-                    self?.finishRequest(key: key, request: request, error: nil)
+                    self?.finishRequest(
+                        key: key,
+                        request: request,
+                        token: requestToken,
+                        error: nil
+                    )
                 } catch {
                     self?.finishRequest(
                         key: key,
                         request: request,
+                        token: requestToken,
                         error: "This photo is unavailable."
                     )
                 }
@@ -227,6 +255,7 @@ final class ViewerPresentationState {
         let obsolete = Set(activeRequests.keys).subtracting(desired.keys)
         for key in obsolete {
             activeRequests.removeValue(forKey: key)
+            requestTokens.removeValue(forKey: key)
             frameTasks.removeValue(forKey: key)?.cancel()
         }
         prefetchTwoAway()
@@ -299,10 +328,13 @@ final class ViewerPresentationState {
     private func finishRequest(
         key: ViewerFrameKey,
         request: MediaRequest,
+        token: UUID,
         error: String?
     ) {
-        guard activeRequests[key] == request else { return }
+        guard activeRequests[key] == request,
+              requestTokens[key] == token else { return }
         activeRequests.removeValue(forKey: key)
+        requestTokens.removeValue(forKey: key)
         frameTasks.removeValue(forKey: key)
         if frames[key]?.containsRealMedia != true {
             errors[key] = error ?? "This photo is unavailable."

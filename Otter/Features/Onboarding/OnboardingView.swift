@@ -3,7 +3,10 @@ import SwiftUI
 @MainActor
 struct OnboardingView: View {
     typealias ValidateConnection = @Sendable (OnboardingConnectRequest) async -> ConnectionValidationResult
-    typealias DidConnect = @MainActor (OnboardingConnectRequest, ConnectedServerSummary) -> Void
+    typealias DidConnect = @MainActor (
+        OnboardingConnectRequest,
+        ConnectedServerSummary
+    ) async -> ConnectionActivationResult
 
     @State private var form: OnboardingFormState
     @FocusState private var focusedField: Field?
@@ -96,11 +99,11 @@ struct OnboardingView: View {
         Section {
             Button(action: beginValidation) {
                 HStack(spacing: 10) {
-                    if form.connectionState == .validating {
+                    if isConnectionInProgress {
                         ProgressView()
                             .controlSize(.small)
                     }
-                    Text(form.connectionState == .validating ? "Connecting…" : "Connect")
+                    Text(isConnectionInProgress ? "Connecting…" : "Connect")
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -120,6 +123,16 @@ struct OnboardingView: View {
             Label("Validating server and API key", systemImage: "arrow.triangle.2.circlepath")
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier(AccessibilityID.Onboarding.connectionStatus)
+        case let .activating(summary):
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Securing account", systemImage: "key.horizontal.fill")
+                    .foregroundStyle(.secondary)
+                Text("Connected to \(summary.accountDisplayName) · Immich \(summary.serverVersion)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(AccessibilityID.Onboarding.connectionStatus)
         case let .connected(summary):
             VStack(alignment: .leading, spacing: 4) {
                 Label("Connected", systemImage: "checkmark.circle.fill")
@@ -166,6 +179,15 @@ struct OnboardingView: View {
         !form.apiKeyText.isEmpty && form.apiKeyIssue != nil
     }
 
+    private var isConnectionInProgress: Bool {
+        switch form.connectionState {
+        case .validating, .activating:
+            true
+        default:
+            false
+        }
+    }
+
     private func validationMessage(_ message: String, identifier: String) -> some View {
         Label(message, systemImage: "exclamationmark.circle")
             .font(.footnote)
@@ -186,7 +208,9 @@ struct OnboardingView: View {
         guard form.completeValidation(result, revision: revision) else { return }
 
         if case let .connected(summary) = result {
-            onConnected(request, summary)
+            let activation = await onConnected(request, summary)
+            guard !Task.isCancelled else { return }
+            form.completeActivation(activation, revision: revision)
         }
     }
 
@@ -205,7 +229,7 @@ struct OnboardingView: View {
                 ConnectedServerSummary(serverVersion: "2.4.1", accountDisplayName: "Preview Account")
             )
         },
-        onConnected: { _, _ in }
+        onConnected: { _, _ in .activated }
     )
 }
 
@@ -216,6 +240,6 @@ struct OnboardingView: View {
             connectionState: .failed(.serverUnavailable)
         ),
         validateConnection: { _ in .failed(.serverUnavailable) },
-        onConnected: { _, _ in }
+        onConnected: { _, _ in .activated }
     )
 }

@@ -6,9 +6,13 @@ struct ZoomingMediaSurface: UIViewRepresentable {
     let surface: RenderSurface?
     let accessibilityLabel: String
     let accessibilityIdentifier: String
+    var isAccessibilityActive = true
     let resetGeneration: Int
     let onZoomScaleChanged: (CGFloat) -> Void
     let onInteractionChanged: (ViewerInteractionState) -> Void
+    var reduceMotion = false
+    var onSingleTap: () -> Void = {}
+    var onDrag: (ViewerDragEvent) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(resetGeneration: resetGeneration)
@@ -32,15 +36,21 @@ struct ZoomingMediaSurface: UIViewRepresentable {
         }
         if context.coordinator.resetGeneration != resetGeneration {
             context.coordinator.resetGeneration = resetGeneration
-            view.resetToFit(animated: true)
+            view.resetToFit(animated: !reduceMotion)
         }
     }
 
     private func configure(_ view: ZoomingImageScrollView) {
         view.onZoomScaleChanged = onZoomScaleChanged
         view.onInteractionChanged = onInteractionChanged
+        view.onSingleTap = onSingleTap
+        view.onDrag = onDrag
+        view.reduceMotion = reduceMotion
         view.accessibilityLabel = accessibilityLabel
         view.accessibilityIdentifier = accessibilityIdentifier
+        view.isAccessibilityElement = isAccessibilityActive
+        view.accessibilityElementsHidden = !isAccessibilityActive
+        view.updateAccessibilityZoomValue()
     }
 
     final class Coordinator {
@@ -53,14 +63,22 @@ struct ZoomingMediaSurface: UIViewRepresentable {
 }
 
 @MainActor
-final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate {
+final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     var onZoomScaleChanged: (CGFloat) -> Void = { _ in }
     var onInteractionChanged: (ViewerInteractionState) -> Void = { _ in }
+    var onSingleTap: () -> Void = {}
+    var onDrag: (ViewerDragEvent) -> Void = { _ in }
+    var reduceMotion = false
 
     private let imageView = UIImageView()
     private var currentSurface: RenderSurface?
     private var lastViewportSize: CGSize = .zero
     private var isApplyingGeometry = false
+    private lazy var interactionPan = UIPanGestureRecognizer(target: self, action: #selector(handleInteractionPan(_:)))
+    private var lockedAxis: ViewerGestureAxis?
+    private var dragStartOffset: CGPoint = .zero
+    private var didBeginCustomDrag = false
+    private var isHorizontalHandoffActive = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -87,8 +105,20 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate {
     func setSurface(_ surface: RenderSurface) {
         guard currentSurface !== surface else { return }
         let snapshot = captureSnapshot(viewportSize: bounds.size)
+        let replacement = UIImage(cgImage: surface.cgImage)
+        let shouldCrossFade = currentSurface != nil
         currentSurface = surface
-        imageView.image = UIImage(cgImage: surface.cgImage)
+        if shouldCrossFade {
+            UIView.transition(
+                with: imageView,
+                duration: 0.12,
+                options: [.transitionCrossDissolve, .beginFromCurrentState, .allowUserInteraction]
+            ) {
+                self.imageView.image = replacement
+            }
+        } else {
+            imageView.image = replacement
+        }
         applyGeometry(snapshot: snapshot)
     }
 
@@ -119,6 +149,7 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate {
 
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
         centerContent()
+        updateAccessibilityZoomValue()
         guard !isApplyingGeometry else { return }
         onZoomScaleChanged(zoomScale)
     }
@@ -144,11 +175,28 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate {
         onInteractionChanged(.idle)
     }
 
+    func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView,
+        withVelocity velocity: CGPoint,
+        targetContentOffset: UnsafeMutablePointer<CGPoint>
+    ) {
+        guard isHorizontalHandoffActive else { return }
+        targetContentOffset.pointee = contentOffset
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === interactionPan || otherGestureRecognizer === interactionPan
+    }
+
     @objc private func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
         guard imageView.image != nil else { return }
         onInteractionChanged(.zooming)
+        defer { onInteractionChanged(.idle) }
         if zoomScale > minimumZoomScale + 0.01 {
-            resetToFit(animated: true)
+            resetToFit(animated: !reduceMotion)
             return
         }
         let targetScale = min(maximumZoomScale, 2.5)
@@ -160,13 +208,53 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate {
                 viewportSize: bounds.size,
                 maximumScale: maximumZoomScale
             ),
-            animated: true
+            animated: !reduceMotion
         )
+    }
+
+    @objc private func handleSingleTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        onSingleTap()
+    }
+
+    @objc private func handleInteractionPan(_ recognizer: UIPanGestureRecognizer) {
+        let translation = recognizer.translation(in: self)
+        let velocity = recognizer.velocity(in: self)
+
+        switch recognizer.state {
+        case .began:
+            lockedAxis = nil
+            didBeginCustomDrag = false
+            isHorizontalHandoffActive = false
+            dragStartOffset = contentOffset
+        case .changed:
+            if lockedAxis == nil {
+                lockedAxis = ZoomGeometry.resolvedAxis(translation: translation)
+            }
+            guard let lockedAxis else { return }
+            switch lockedAxis {
+            case .horizontal:
+                let handoff = horizontalHandoff(for: translation.x)
+                guard isAtFit || handoff != 0 || didBeginCustomDrag else { return }
+                emitDrag(axis: .horizontal, translation: handoff, velocity: horizontalVelocity(velocity.x, handoff: handoff))
+                isHorizontalHandoffActive = handoff != 0
+            case .vertical:
+                guard isAtFit, translation.y > 0 || didBeginCustomDrag else { return }
+                emitDrag(axis: .vertical, translation: max(translation.y, 0), velocity: velocity.y)
+            }
+        case .ended:
+            finishDrag(translation: translation, velocity: velocity, cancelled: false)
+        case .cancelled, .failed:
+            finishDrag(translation: translation, velocity: velocity, cancelled: true)
+        default:
+            break
+        }
     }
 
     @objc private func performAccessibilityZoomIn() -> Bool {
         guard imageView.image != nil else { return false }
         onInteractionChanged(.zooming)
+        defer { onInteractionChanged(.idle) }
         let targetScale = min(maximumZoomScale, max(zoomScale * 2, 2))
         zoom(
             to: ZoomGeometry.zoomRect(
@@ -175,21 +263,24 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate {
                 viewportSize: bounds.size,
                 maximumScale: maximumZoomScale
             ),
-            animated: true
+            animated: !reduceMotion
         )
         return true
     }
 
     @objc private func performAccessibilityFit() -> Bool {
-        resetToFit(animated: true)
+        onInteractionChanged(.zooming)
+        defer { onInteractionChanged(.idle) }
+        resetToFit(animated: !reduceMotion)
         return true
     }
 
     private func commonInit() {
         delegate = self
-        backgroundColor = .black
+        backgroundColor = .clear
         showsHorizontalScrollIndicator = false
         showsVerticalScrollIndicator = false
+        bounces = false
         bouncesZoom = true
         decelerationRate = .fast
         minimumZoomScale = 1
@@ -203,6 +294,14 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate {
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
         addGestureRecognizer(doubleTap)
+
+        let singleTap = UITapGestureRecognizer(target: self, action: #selector(handleSingleTap(_:)))
+        singleTap.require(toFail: doubleTap)
+        addGestureRecognizer(singleTap)
+
+        interactionPan.delegate = self
+        interactionPan.cancelsTouchesInView = false
+        addGestureRecognizer(interactionPan)
 
         isAccessibilityElement = true
         accessibilityTraits = .image
@@ -218,6 +317,80 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate {
                 selector: #selector(performAccessibilityFit)
             ),
         ]
+        updateAccessibilityZoomValue()
+    }
+
+    private var isAtFit: Bool {
+        zoomScale <= minimumZoomScale + 0.01
+    }
+
+    func updateAccessibilityZoomValue() {
+        guard !isAtFit else {
+            accessibilityValue = "Fit"
+            return
+        }
+        let tenths = max(10, Int((zoomScale * 10).rounded()))
+        accessibilityValue = "\(tenths / 10).\(tenths % 10)× zoom"
+    }
+
+    private func horizontalHandoff(for translation: CGFloat) -> CGFloat {
+        guard !isAtFit else { return translation }
+        let range = horizontalContentOffsetRange
+        return ZoomGeometry.horizontalPageHandoff(
+            fingerTranslation: translation,
+            startingOffset: dragStartOffset.x,
+            minimumOffset: range.lowerBound,
+            maximumOffset: range.upperBound
+        )
+    }
+
+    private var horizontalContentOffsetRange: ClosedRange<CGFloat> {
+        let minimum = -contentInset.left
+        let maximum = max(minimum, contentSize.width - bounds.width + contentInset.right)
+        return minimum...maximum
+    }
+
+    private func horizontalVelocity(_ velocity: CGFloat, handoff: CGFloat) -> CGFloat {
+        guard handoff != 0 else { return 0 }
+        return velocity.sign == handoff.sign ? velocity : 0
+    }
+
+    private func emitDrag(axis: ViewerGestureAxis, translation: CGFloat, velocity: CGFloat) {
+        if !didBeginCustomDrag {
+            didBeginCustomDrag = true
+            onInteractionChanged(axis == .horizontal ? .paging : .dismissing)
+            onDrag(ViewerDragEvent(axis: axis, phase: .began, translation: translation, velocity: velocity))
+        } else {
+            onDrag(ViewerDragEvent(axis: axis, phase: .changed, translation: translation, velocity: velocity))
+        }
+    }
+
+    private func finishDrag(translation: CGPoint, velocity: CGPoint, cancelled: Bool) {
+        defer {
+            lockedAxis = nil
+            didBeginCustomDrag = false
+            isHorizontalHandoffActive = false
+        }
+        guard didBeginCustomDrag, let lockedAxis else { return }
+        let value: CGFloat
+        let projectedVelocity: CGFloat
+        switch lockedAxis {
+        case .horizontal:
+            value = horizontalHandoff(for: translation.x)
+            projectedVelocity = horizontalVelocity(velocity.x, handoff: value)
+        case .vertical:
+            value = max(translation.y, 0)
+            projectedVelocity = velocity.y
+        }
+        onDrag(
+            ViewerDragEvent(
+                axis: lockedAxis,
+                phase: cancelled ? .cancelled : .ended,
+                translation: value,
+                velocity: projectedVelocity
+            )
+        )
+        onInteractionChanged(.idle)
     }
 
     private func captureSnapshot(viewportSize: CGSize) -> ZoomViewportSnapshot {

@@ -4,6 +4,16 @@ import Testing
 
 @Suite("Asset export")
 struct AssetExporterTests {
+    @Test("Export targets remain explicit and have distinct progress presentation")
+    func explicitDestinations() {
+        #expect(ExportDestination.allCases == [.photos, .files])
+        #expect(ExportDestination.photos.title == "Save to Photos")
+        #expect(ExportDestination.files.title == "Save to Files")
+        #expect(ExportDestination.photos.workingTitle != ExportDestination.files.workingTitle)
+        #expect(ExportDestination.photos.accessibilityIdentifier == AccessibilityID.Export.photos)
+        #expect(ExportDestination.files.accessibilityIdentifier == AccessibilityID.Export.files)
+    }
+
     @Test("Original bytes and extension are preserved outside media cache")
     func originalPreservesBytes() async throws {
         let fixture = try ExportFixture()

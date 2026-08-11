@@ -12,6 +12,7 @@ enum TestAssetFactory {
         createdAt: Date = Date(timeIntervalSince1970: 1_700_000_000),
         updatedAt: Date = Date(timeIntervalSince1970: 1_700_000_100),
         rating: AssetRating? = nil,
+        isFavorite: Bool = false,
         isArchived: Bool = false,
         isTrashed: Bool = false,
         visibility: String? = "timeline"
@@ -31,7 +32,7 @@ enum TestAssetFactory {
             checksum: "fixture-checksum",
             originalFileName: "fixture.jpg",
             originalMimeType: "image/jpeg",
-            isFavorite: false,
+            isFavorite: isFavorite,
             isEdited: false,
             isArchived: isArchived,
             isTrashed: isTrashed,

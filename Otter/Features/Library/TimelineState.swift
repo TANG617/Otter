@@ -1,6 +1,14 @@
 import Foundation
 import Observation
 
+enum TimelineBrowseScope: String, CaseIterable, Identifiable, Sendable {
+    case years = "Years"
+    case months = "Months"
+    case all = "All"
+
+    var id: String { rawValue }
+}
+
 @MainActor
 @Observable
 final class TimelineState {
@@ -15,11 +23,14 @@ final class TimelineState {
     private(set) var assets: [TimelineAsset] = []
     private(set) var sections: [TimelineSection] = []
     private(set) var assetIndices: [UUID: Int] = [:]
+    private(set) var windowRevision = 0
     private(set) var isRefreshing = false
     private(set) var isLoadingMore = false
     private(set) var canLoadMore = false
+    private(set) var refreshProgress: AssetRefreshProgress?
     private(set) var refreshFailure: PresentationFailure?
     private(set) var paginationFailure: PresentationFailure?
+    private(set) var browseScope: TimelineBrowseScope = .all
 
     let accountNamespace: UUID
     let pageSize: Int
@@ -60,20 +71,40 @@ final class TimelineState {
     func refresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true
+        refreshProgress = AssetRefreshProgress(
+            stage: .connecting,
+            processedCount: 0,
+            storedCount: 0,
+            totalCount: nil
+        )
         refreshFailure = nil
         defer { isRefreshing = false }
 
         do {
-            _ = try await dataClient.refresh(
+            for try await event in dataClient.refreshEvents(
                 accountNamespace,
                 .incremental(overlap: 300)
-            )
-            try Task.checkCancellation()
-            try await reloadLocalWindow(targetCount: max(pageSize, assets.count))
-            contentState = .loaded
+            ) {
+                try Task.checkCancellation()
+                switch event {
+                case let .progress(progress):
+                    refreshProgress = progress
+                    switch progress.stage {
+                    case .showingLatest, .organizing:
+                        try await reloadLocalWindow(targetCount: max(pageSize, assets.count))
+                        contentState = .loaded
+                    case .connecting, .completed:
+                        break
+                    }
+                case .completed:
+                    try await reloadLocalWindow(targetCount: max(pageSize, assets.count))
+                    contentState = .loaded
+                }
+            }
         } catch is CancellationError {
             return
         } catch {
+            refreshProgress = nil
             if assets.isEmpty {
                 contentState = .failed(Self.libraryFailure)
             } else {
@@ -86,7 +117,6 @@ final class TimelineState {
         guard contentState == .loaded,
               canLoadMore,
               !isLoadingMore,
-              !isRefreshing,
               let cursor = nextCursor else { return }
 
         isLoadingMore = true
@@ -126,14 +156,13 @@ final class TimelineState {
         guard asset.accountNamespace == accountNamespace,
               let index = assetIndices[asset.id] else { return }
         assets[index] = asset
+        rebuildSections()
+    }
 
-        let day = calendar.startOfDay(for: asset.timelineDate)
-        guard let sectionIndex = sections.firstIndex(where: { $0.day == day }),
-              let assetIndex = sections[sectionIndex].assets.firstIndex(where: { $0.id == asset.id })
-        else { return }
-        var sectionAssets = sections[sectionIndex].assets
-        sectionAssets[assetIndex] = asset
-        sections[sectionIndex] = TimelineSection(day: day, assets: sectionAssets)
+    func setBrowseScope(_ scope: TimelineBrowseScope) {
+        guard browseScope != scope else { return }
+        browseScope = scope
+        rebuildSections()
     }
 
     private func reloadLocalWindow(targetCount: Int) async throws {
@@ -154,7 +183,7 @@ final class TimelineState {
 
             guard let candidate = page.nextCursor,
                   !cursors.contains(candidate),
-                  accumulated.count < targetCount else {
+                  accumulated.count < max(targetCount, assets.count) else {
                 cursor = page.nextCursor
                 break
             }
@@ -169,13 +198,17 @@ final class TimelineState {
     }
 
     private func replace(with incoming: [TimelineAsset]) {
+        let previousIDs = assets.map(\.id)
         var byID: [UUID: TimelineAsset] = [:]
         for asset in incoming where asset.accountNamespace == accountNamespace && asset.isTimelineEligible {
             byID[asset.id] = asset
         }
         assets = Self.ordered(Array(byID.values))
         assetIndices = Dictionary(uniqueKeysWithValues: assets.enumerated().map { ($0.element.id, $0.offset) })
-        sections = TimelineGrouping.sectionsFromOrdered(assets, calendar: calendar)
+        rebuildSections()
+        if assets.map(\.id) != previousIDs {
+            windowRevision += 1
+        }
     }
 
     private func appendOrderedPage(_ incoming: [TimelineAsset]) {
@@ -193,17 +226,41 @@ final class TimelineState {
             assetIndices[asset.id] = startIndex + offset
         }
 
-        for asset in additions {
-            let day = calendar.startOfDay(for: asset.timelineDate)
-            if let last = sections.last, last.day == day {
-                sections[sections.count - 1] = TimelineSection(
-                    day: day,
-                    assets: last.assets + [asset]
-                )
-            } else {
-                sections.append(TimelineSection(day: day, assets: [asset]))
-            }
+        rebuildSections()
+        windowRevision += 1
+    }
+
+    private func rebuildSections() {
+        switch browseScope {
+        case .all:
+            sections = TimelineGrouping.sectionsFromOrdered(assets, calendar: calendar)
+        case .months:
+            sections = groupedSections(component: .month)
+        case .years:
+            sections = groupedSections(component: .year)
         }
+    }
+
+    private func groupedSections(component: Calendar.Component) -> [TimelineSection] {
+        var result: [TimelineSection] = []
+        var currentStart: Date?
+        var currentAssets: [TimelineAsset] = []
+
+        for asset in assets {
+            guard let start = calendar.dateInterval(of: component, for: asset.timelineDate)?.start else {
+                continue
+            }
+            if let currentStart, currentStart != start {
+                result.append(TimelineSection(day: currentStart, assets: currentAssets))
+                currentAssets.removeAll(keepingCapacity: true)
+            }
+            currentStart = start
+            currentAssets.append(asset)
+        }
+        if let currentStart {
+            result.append(TimelineSection(day: currentStart, assets: currentAssets))
+        }
+        return result
     }
 
     private func updateContinuation(_ cursor: TimelineCursor?) {
@@ -232,12 +289,12 @@ final class TimelineState {
     }
 
     private static let libraryFailure = PresentationFailure(
-        title: "Library Unavailable",
-        message: "Your photo timeline could not be loaded. Try again."
+        title: "Couldn’t Refresh Library",
+        message: "Check your connection, then try again."
     )
 
     private static let refreshFailurePresentation = PresentationFailure(
-        title: "Couldn’t Refresh",
+        title: "Couldn’t Refresh Library",
         message: "Showing saved library information. Pull to refresh or try again.",
         systemImage: "wifi.exclamationmark"
     )

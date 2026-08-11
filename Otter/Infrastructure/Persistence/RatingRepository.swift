@@ -17,6 +17,11 @@ struct RatingMutationResult: Equatable, Sendable {
     let asset: TimelineAsset
 }
 
+struct FavoriteMutationResult: Equatable, Sendable {
+    let previousValue: Bool
+    let asset: TimelineAsset
+}
+
 actor RatingRepository {
     private let database: AssetDatabase
     private let remote: any AssetRemoteDataSource
@@ -66,6 +71,50 @@ actor RatingRepository {
             return RatingMutationResult(previousRating: previous.rating, asset: verified)
         } catch {
             try? database.updateRating(previous.rating, assetID: assetID, accountNamespace: accountNamespace)
+            if error as? RatingRepositoryError == .verificationMismatch
+                || error as? ImmichClientError == .permissionDenied {
+                writeAvailability = .unavailable
+            }
+            throw error
+        }
+    }
+
+    func setFavorite(
+        _ isFavorite: Bool,
+        assetID: UUID,
+        accountNamespace: UUID
+    ) async throws -> FavoriteMutationResult {
+        guard writeAvailability != .unavailable else {
+            throw RatingRepositoryError.unavailable
+        }
+        let mutationKey = RatingMutationKey(accountNamespace: accountNamespace, assetID: assetID)
+        await acquire(mutationKey)
+        defer { release(mutationKey) }
+        guard let previous = try database.asset(id: assetID, accountNamespace: accountNamespace) else {
+            throw RatingRepositoryError.assetNotFound
+        }
+
+        try database.updateFavorite(isFavorite, assetID: assetID, accountNamespace: accountNamespace)
+        do {
+            try await remote.writeFavorite(
+                isFavorite,
+                assetID: assetID,
+                accountNamespace: accountNamespace
+            )
+            let verified = try await remote.asset(id: assetID, accountNamespace: accountNamespace)
+            guard verified.isFavorite == isFavorite else {
+                writeAvailability = .unavailable
+                throw RatingRepositoryError.verificationMismatch
+            }
+            writeAvailability = .available
+            try database.upsertAssets([verified], accountNamespace: accountNamespace)
+            return FavoriteMutationResult(previousValue: previous.isFavorite, asset: verified)
+        } catch {
+            try? database.updateFavorite(
+                previous.isFavorite,
+                assetID: assetID,
+                accountNamespace: accountNamespace
+            )
             if error as? RatingRepositoryError == .verificationMismatch
                 || error as? ImmichClientError == .permissionDenied {
                 writeAvailability = .unavailable

@@ -1,164 +1,217 @@
 import SwiftUI
 
-struct ViewerPage: View {
-    let item: ViewerItem
-    let pageIndex: Int
-    let pageCount: Int
-    let rating: AssetRating?
-    let frame: MediaFrame?
-    let resetGeneration: Int
-    let isCurrent: Bool
-    let onZoomScaleChanged: (CGFloat) -> Void
-    let onInteractionChanged: (ViewerInteractionState) -> Void
-
-    var body: some View {
-        ZoomingMediaSurface(
-            surface: frame?.surface,
-            accessibilityLabel: ViewerAccessibilityID.pageLabel(
-                item: item,
-                rating: rating,
-                index: pageIndex,
-                count: pageCount
-            ),
-            accessibilityIdentifier: ViewerAccessibilityID.media(assetID: item.id),
-            resetGeneration: resetGeneration,
-            onZoomScaleChanged: isCurrent ? onZoomScaleChanged : { _ in },
-            onInteractionChanged: isCurrent ? onInteractionChanged : { _ in }
-        )
-        .background(Color.black)
-    }
-}
-
-struct ViewerBottomControls: View {
+struct ViewerBottomToolbar: ToolbarContent {
     @Binding var selectedVariant: AssetVariant
     @Binding var rating: AssetRating?
+    @Binding var isFavorite: Bool
 
-    let canGoPrevious: Bool
-    let canGoNext: Bool
     let isLoadingVariant: Bool
-    let onPrevious: () -> Void
-    let onNext: () -> Void
-    let onFit: () -> Void
+    let downloadState: ViewerDownloadState
     let onInfo: () -> Void
     let onDownload: () -> Void
 
-    var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Picker("Photo Version", selection: $selectedVariant) {
-                    Text("Current").tag(AssetVariant.current)
-                    Text("Original").tag(AssetVariant.original)
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier(ViewerAccessibilityID.variantPicker)
+    var body: some ToolbarContent {
+        ToolbarItemGroup(placement: .bottomBar) {
+            ViewerDownloadButton(
+                state: downloadState,
+                action: onDownload
+            )
 
-                if isLoadingVariant {
-                    ProgressView()
-                        .tint(.white)
-                        .accessibilityLabel("Loading selected version")
-                }
+            ViewerRatingMenu(
+                rating: $rating,
+                isFavorite: $isFavorite
+            )
+
+            Spacer()
+
+            Button(action: onInfo) {
+                Image(systemName: "info.circle")
             }
+            .accessibilityLabel("Photo Info")
+            .accessibilityIdentifier(ViewerAccessibilityID.info)
 
-            HStack(spacing: 10) {
-                ViewerIconButton(
-                    title: "Previous Photo",
-                    systemImage: "chevron.left",
-                    accessibilityIdentifier: ViewerAccessibilityID.previous,
-                    isEnabled: canGoPrevious,
-                    action: onPrevious
-                )
-
-                ViewerIconButton(
-                    title: "Fit Photo",
-                    systemImage: "arrow.down.right.and.arrow.up.left",
-                    accessibilityIdentifier: ViewerAccessibilityID.fit,
-                    action: onFit
-                )
-
-                ratingPicker
-
-                ViewerIconButton(
-                    title: "Photo Info",
-                    systemImage: "info.circle",
-                    accessibilityIdentifier: ViewerAccessibilityID.info,
-                    action: onInfo
-                )
-
-                ViewerIconButton(
-                    title: "Download Photo",
-                    systemImage: "square.and.arrow.down",
-                    accessibilityIdentifier: ViewerAccessibilityID.download,
-                    action: onDownload
-                )
-
-                ViewerIconButton(
-                    title: "Next Photo",
-                    systemImage: "chevron.right",
-                    accessibilityIdentifier: ViewerAccessibilityID.next,
-                    isEnabled: canGoNext,
-                    action: onNext
-                )
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: 430)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private var ratingPicker: some View {
-        Menu {
-            ratingButton("Unrated", value: nil)
-            ratingButton("Reject", value: .rejected)
-            ratingButton("1 Star", value: .one)
-            ratingButton("2 Stars", value: .two)
-            ratingButton("3 Stars", value: .three)
-            ratingButton("4 Stars", value: .four)
-            ratingButton("5 Stars", value: .five)
-        } label: {
-            Image(systemName: rating == nil ? "star" : rating == .rejected ? "xmark" : "star.fill")
-                .font(.body.weight(.semibold))
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .foregroundStyle(.white)
-        .background(.thinMaterial, in: Circle())
-        .accessibilityLabel("Rating, \(ViewerRatingLabel.text(for: rating))")
-        .accessibilityIdentifier(ViewerAccessibilityID.rate)
-    }
-
-    private func ratingButton(_ title: String, value: AssetRating?) -> some View {
-        Button {
-            rating = value
-        } label: {
-            if rating == value {
-                Label(title, systemImage: "checkmark")
-            } else {
-                Text(title)
-            }
+            ViewerMoreMenu(
+                selectedVariant: $selectedVariant,
+                isLoadingVariant: isLoadingVariant
+            )
         }
     }
 }
 
-struct ViewerIconButton: View {
-    let title: String
-    let systemImage: String
-    let accessibilityIdentifier: String
-    var isEnabled = true
+struct ViewerTopMoreMenu: View {
+    @Binding var selectedVariant: AssetVariant
+    let isLoadingVariant: Bool
+    let onInfo: () -> Void
+
+    var body: some View {
+        Menu {
+            Button("Info", systemImage: "info.circle", action: onInfo)
+            Divider()
+            variantPicker
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        .accessibilityLabel("More options")
+    }
+
+    private var variantPicker: some View {
+        Picker("Photo Version", selection: $selectedVariant) {
+            Label("Current Version", systemImage: "photo")
+                .tag(AssetVariant.current)
+            Label("Original", systemImage: "photo.badge.arrow.down")
+                .tag(AssetVariant.original)
+        }
+    }
+}
+
+private struct ViewerDownloadButton: View {
+    let state: ViewerDownloadState
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.body.weight(.semibold))
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+            Group {
+                if state.isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: systemImage)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+            }
+            .frame(minWidth: 44, minHeight: 44)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.white)
-        .background(.thinMaterial, in: Circle())
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.4)
-        .accessibilityLabel(title)
-        .accessibilityIdentifier(accessibilityIdentifier)
+        .disabled(state.isWorking)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(accessibilityValue)
+        .accessibilityIdentifier(ViewerAccessibilityID.download)
     }
+
+    private var systemImage: String {
+        switch state {
+        case .idle: "square.and.arrow.down"
+        case .working: "arrow.down.circle.dotted"
+        case .completed: "checkmark.circle.fill"
+        case .failed: "arrow.clockwise.circle"
+        }
+    }
+
+    private var accessibilityLabel: String {
+        switch state {
+        case .idle: "Download Photo"
+        case .working: "Downloading Photo"
+        case .completed: "Photo Saved"
+        case .failed: "Retry Download"
+        }
+    }
+
+    private var accessibilityValue: String {
+        switch state {
+        case .idle: ""
+        case .working: "In progress"
+        case .completed: "Complete"
+        case let .failed(failure): failure.message
+        }
+    }
+}
+
+private struct ViewerRatingMenu: View {
+    @Binding var rating: AssetRating?
+    @Binding var isFavorite: Bool
+
+    var body: some View {
+        Menu {
+            ForEach(ViewerRatingChoice.stars.reversed()) { choice in
+                ratingButton(
+                    title: choice.title,
+                    value: choice.value,
+                    systemImage: "star.fill"
+                )
+            }
+
+            ratingButton(
+                title: "Unrated",
+                value: nil,
+                systemImage: "star.slash"
+            )
+
+            Divider()
+
+            Toggle(isOn: $isFavorite) {
+                Label("Favourite", systemImage: isFavorite ? "heart.fill" : "heart")
+            }
+            .accessibilityIdentifier(ViewerAccessibilityID.favorite)
+        } label: {
+            Image(systemName: controlSymbol)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .accessibilityLabel("Rating, \(ViewerRatingLabel.text(for: rating))")
+        .accessibilityValue(isFavorite ? "Favourite" : "")
+        .accessibilityHint("Press and slide to choose Favourite, Unrated, or one to five stars")
+        .accessibilityIdentifier(ViewerAccessibilityID.rate)
+    }
+
+    private var controlSymbol: String {
+        if isFavorite { return "heart.fill" }
+        return rating == nil ? "star" : "star.fill"
+    }
+
+    private func ratingButton(
+        title: String,
+        value: AssetRating?,
+        systemImage: String
+    ) -> some View {
+        Button {
+            rating = value
+        } label: {
+            Label(title, systemImage: rating == value ? "checkmark" : systemImage)
+        }
+        .accessibilityIdentifier(value.map { "viewer.rating.\($0.rawValue)" } ?? "viewer.rating.unrated")
+    }
+}
+
+private struct ViewerMoreMenu: View {
+    @Binding var selectedVariant: AssetVariant
+    let isLoadingVariant: Bool
+
+    var body: some View {
+        Menu {
+            Picker("Photo Version", selection: $selectedVariant) {
+                Label("Current Version", systemImage: "photo")
+                    .tag(AssetVariant.current)
+                Label("Original", systemImage: "photo.badge.arrow.down")
+                    .tag(AssetVariant.original)
+            }
+
+            if isLoadingVariant {
+                Label("Loading selected version", systemImage: "progress.indicator")
+                    .disabled(true)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        .accessibilityLabel("More options")
+        .accessibilityValue("\(variantTitle)\(isLoadingVariant ? ", loading" : "")")
+        .accessibilityIdentifier(ViewerAccessibilityID.variantPicker)
+    }
+
+    private var variantTitle: String {
+        selectedVariant == .current ? "Current Version" : "Original"
+    }
+}
+
+struct ViewerRatingChoice: Identifiable, Equatable, Sendable {
+    let value: AssetRating
+    let title: String
+
+    var id: Int { value.rawValue }
+    var accessibilityIdentifier: String { "viewer.rating.\(value.rawValue)" }
+
+    static let stars = [
+        ViewerRatingChoice(value: .one, title: "1 Star"),
+        ViewerRatingChoice(value: .two, title: "2 Stars"),
+        ViewerRatingChoice(value: .three, title: "3 Stars"),
+        ViewerRatingChoice(value: .four, title: "4 Stars"),
+        ViewerRatingChoice(value: .five, title: "5 Stars")
+    ]
 }

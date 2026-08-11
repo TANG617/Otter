@@ -3,12 +3,15 @@ import SwiftUI
 @MainActor
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @AccessibilityFocusState private var isDoneFocused: Bool
     typealias UpdateCacheLimit = @MainActor (SettingsCacheLimit) -> Void
     typealias PerformAction = @MainActor @Sendable () async -> ActionOutcome
 
     @State private var cacheLimit: SettingsCacheLimit
+    @State private var cacheUsageBytes: Int64
     @State private var actionState: ActionState = .idle
     @State private var pendingAction: SettingsPendingAction?
+    @State private var statusContext: SettingsPendingAction?
     @State private var actionRevision: UInt64 = 0
     @State private var confirmation: SettingsConfirmation?
 
@@ -32,6 +35,7 @@ struct SettingsView: View {
         self.snapshot = snapshot
         self.diagnosticsSnapshot = diagnosticsSnapshot
         _cacheLimit = State(initialValue: snapshot.cacheLimit)
+        _cacheUsageBytes = State(initialValue: snapshot.cacheUsageBytes)
         self.updateCacheLimit = updateCacheLimit
         self.clearCache = clearCache
         self.refreshDiagnostics = refreshDiagnostics
@@ -42,43 +46,40 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                accountSection
+                connectionSection
                 cacheSection
                 supportSection
-                aboutSection
                 signOutSection
             }
             .formStyle(.grouped)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .accessibilityIdentifier(AccessibilityID.Settings.screen)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
+                        .accessibilityFocused($isDoneFocused)
+                        .accessibilityIdentifier("settings.done")
                 }
             }
             .alert(item: $confirmation, content: confirmationAlert)
             .task(id: actionRevision) {
                 await performPendingActionIfNeeded()
             }
+            .onAppear { isDoneFocused = true }
         }
     }
 
-    private var accountSection: some View {
-        Section("Account") {
-            LabeledContent("Account", value: snapshot.accountDisplayName)
+    private var connectionSection: some View {
+        Section("Connection") {
             LabeledContent("Server", value: snapshot.serverDisplayName)
             LabeledContent("Server Version", value: snapshot.serverVersion)
-
-            if snapshot.usesFixtures {
-                Label("Fixture Mode", systemImage: "wrench.and.screwdriver")
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 
     private var cacheSection: some View {
         Section {
-            LabeledContent("Used", value: formattedBytes(snapshot.cacheUsageBytes))
+            LabeledContent("Used", value: formattedBytes(cacheUsageBytes))
 
             Picker("Limit", selection: $cacheLimit) {
                 ForEach(SettingsCacheLimit.allCases) { option in
@@ -86,18 +87,21 @@ struct SettingsView: View {
                 }
             }
             .accessibilityIdentifier(AccessibilityID.Settings.cacheLimit)
+            .disabled(actionState.isWorking)
             .onChange(of: cacheLimit) { _, newLimit in
                 updateCacheLimit(newLimit)
-                actionState = .succeeded("Media cache limit updated.")
+                actionState = .idle
             }
 
-            Button("Clear Media Cache", role: .destructive) {
+            Button("Clear Cache") {
                 confirmation = .clearCache
             }
             .disabled(actionState.isWorking)
             .accessibilityIdentifier(AccessibilityID.Settings.clearCache)
 
-            actionStatus
+            if statusContext == .clearCache {
+                actionStatus
+            }
         } header: {
             Text("Media Cache")
         } footer: {
@@ -114,19 +118,12 @@ struct SettingsView: View {
                     copySummary: copyDiagnosticsSummary
                 )
             } label: {
-                HStack {
-                    Label("Diagnostics", systemImage: "stethoscope")
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .accessibilityHidden(true)
-                }
-                .contentShape(Rectangle())
+                Label("Diagnostics", systemImage: "stethoscope")
+                    .contentShape(Rectangle())
             }
             .accessibilityIdentifier(AccessibilityID.Settings.diagnostics)
 
-            LabeledContent("Otter Version", value: snapshot.appVersion)
+            LabeledContent("App Version", value: snapshot.appVersion)
         }
     }
 
@@ -137,15 +134,12 @@ struct SettingsView: View {
             }
             .disabled(actionState.isWorking)
             .accessibilityIdentifier(AccessibilityID.Settings.signOut)
+
+            if statusContext == .signOut {
+                actionStatus
+            }
         } footer: {
             Text("Signing out removes the saved API key and active-account session from this device.")
-        }
-    }
-
-    private var aboutSection: some View {
-        Section("About Otter") {
-            LabeledContent("Tagline", value: "Native Photos for Immich")
-            LabeledContent("Platform", value: "iOS and iPadOS 18+")
         }
     }
 
@@ -180,18 +174,31 @@ struct SettingsView: View {
     }
 
     private func confirmationAlert(_ confirmation: SettingsConfirmation) -> Alert {
-        Alert(
-            title: Text(confirmation.title),
-            message: Text(confirmation.message),
-            primaryButton: .destructive(Text(confirmation.confirmationTitle)) {
-                begin(confirmation == .clearCache ? .clearCache : .signOut)
-            },
-            secondaryButton: .cancel()
-        )
+        switch confirmation {
+        case .clearCache:
+            Alert(
+                title: Text(confirmation.title),
+                message: Text(confirmation.message),
+                primaryButton: .default(Text(confirmation.confirmationTitle)) {
+                    begin(.clearCache)
+                },
+                secondaryButton: .cancel()
+            )
+        case .signOut:
+            Alert(
+                title: Text(confirmation.title),
+                message: Text(confirmation.message),
+                primaryButton: .destructive(Text(confirmation.confirmationTitle)) {
+                    begin(.signOut)
+                },
+                secondaryButton: .cancel()
+            )
+        }
     }
 
     private func begin(_ action: SettingsPendingAction) {
         pendingAction = action
+        statusContext = action
         actionState = .working
         actionRevision &+= 1
     }
@@ -213,6 +220,9 @@ struct SettingsView: View {
 
         switch outcome {
         case let .success(message):
+            if pendingAction == .clearCache {
+                cacheUsageBytes = 0
+            }
             actionState = .succeeded(message)
         case let .failure(failure):
             actionState = .failed(failure)

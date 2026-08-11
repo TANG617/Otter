@@ -2,22 +2,66 @@ import Foundation
 
 struct TimelineDataClient: Sendable {
     var localPage: @Sendable (TimelinePageRequest) async throws -> TimelineAssetPage
-    var refresh: @Sendable (UUID, AssetRefreshMode) async throws -> AssetRefreshResult
+    var refreshEvents: @Sendable (UUID, AssetRefreshMode) -> AssetRefreshEventStream
 
     init(
         localPage: @escaping @Sendable (TimelinePageRequest) async throws -> TimelineAssetPage,
         refresh: @escaping @Sendable (UUID, AssetRefreshMode) async throws -> AssetRefreshResult
     ) {
         self.localPage = localPage
-        self.refresh = refresh
+        refreshEvents = { accountNamespace, mode in
+            AssetRefreshEventStream(bufferingPolicy: .bufferingNewest(2)) { continuation in
+                let task = Task {
+                    continuation.yield(
+                        .progress(
+                            AssetRefreshProgress(
+                                stage: .connecting,
+                                processedCount: 0,
+                                storedCount: 0,
+                                totalCount: nil
+                            )
+                        )
+                    )
+                    do {
+                        let result = try await refresh(accountNamespace, mode)
+                        try Task.checkCancellation()
+                        continuation.yield(
+                            .progress(
+                                AssetRefreshProgress(
+                                    stage: .completed,
+                                    processedCount: result.receivedCount,
+                                    storedCount: result.storedCount,
+                                    totalCount: result.receivedCount
+                                )
+                            )
+                        )
+                        continuation.yield(.completed(result))
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+                continuation.onTermination = { @Sendable _ in
+                    task.cancel()
+                }
+            }
+        }
+    }
+
+    init(
+        localPage: @escaping @Sendable (TimelinePageRequest) async throws -> TimelineAssetPage,
+        refreshEvents: @escaping @Sendable (UUID, AssetRefreshMode) -> AssetRefreshEventStream
+    ) {
+        self.localPage = localPage
+        self.refreshEvents = refreshEvents
     }
 
     init(store: any AssetStore) {
         localPage = { request in
             try await store.localPage(request)
         }
-        refresh = { accountNamespace, mode in
-            try await store.refresh(accountNamespace: accountNamespace, mode: mode)
+        refreshEvents = { accountNamespace, mode in
+            store.refreshEvents(accountNamespace: accountNamespace, mode: mode)
         }
     }
 }

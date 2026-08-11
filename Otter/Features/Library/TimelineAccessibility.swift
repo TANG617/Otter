@@ -2,13 +2,16 @@ import Foundation
 
 enum TimelineAccessibilityID {
     static let screen = "library.timeline"
+    static let more = "library.timeline.more"
     static let settings = "library.timeline.settings"
     static let loading = "library.timeline.loading"
     static let empty = "library.timeline.empty"
     static let failure = "library.timeline.failure"
     static let retry = "library.timeline.retry"
     static let refreshFailure = "library.timeline.refreshFailure"
+    static let refreshStatus = "library.timeline.refreshStatus"
     static let loadMore = "library.timeline.loadMore"
+    static let scope = "library.timeline.scope"
 
     static func section(day: Date, calendar: Calendar = .autoupdatingCurrent) -> String {
         let components = calendar.dateComponents([.year, .month, .day], from: day)

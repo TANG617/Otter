@@ -35,6 +35,115 @@ struct ZoomGeometryTests {
         #expect(NormalizedPhotoAnchor.center == .init(x: 0.5, y: 0.5))
     }
 
+    @Test("Gesture intent waits for hysteresis and locks the dominant axis")
+    func gestureIntent() {
+        #expect(ZoomGeometry.resolvedAxis(translation: CGPoint(x: 7, y: 6)) == nil)
+        #expect(ZoomGeometry.resolvedAxis(translation: CGPoint(x: 12, y: 4)) == .horizontal)
+        #expect(ZoomGeometry.resolvedAxis(translation: CGPoint(x: 3, y: 14)) == .vertical)
+    }
+
+    @Test("Zoomed pan hands only edge remainder to paging")
+    func zoomEdgeHandoff() {
+        #expect(
+            ZoomGeometry.horizontalPageHandoff(
+                fingerTranslation: 80,
+                startingOffset: 50,
+                minimumOffset: 0,
+                maximumOffset: 200
+            ) == 30
+        )
+        #expect(
+            ZoomGeometry.horizontalPageHandoff(
+                fingerTranslation: -90,
+                startingOffset: 150,
+                minimumOffset: 0,
+                maximumOffset: 200
+            ) == -40
+        )
+        #expect(
+            ZoomGeometry.horizontalPageHandoff(
+                fingerTranslation: 30,
+                startingOffset: 50,
+                minimumOffset: 0,
+                maximumOffset: 200
+            ) == 0
+        )
+    }
+
+    @Test("Velocity projection commits a page before release crosses the distance threshold")
+    func velocityProjectedPage() {
+        let next = ZoomGeometry.resolvePage(
+            translation: -40,
+            velocity: -700,
+            pageWidth: 390,
+            canGoPrevious: true,
+            canGoNext: true
+        )
+        #expect(next.direction == .next)
+        #expect(next.projectedTranslation < -390 * 0.25)
+
+        let unavailable = ZoomGeometry.resolvePage(
+            translation: 140,
+            velocity: 0,
+            pageWidth: 390,
+            canGoPrevious: false,
+            canGoNext: true
+        )
+        #expect(unavailable.direction == nil)
+
+        let clearIPadDrag = ZoomGeometry.resolvePage(
+            translation: -130,
+            velocity: 0,
+            pageWidth: 1_024,
+            canGoPrevious: true,
+            canGoNext: true
+        )
+        #expect(clearIPadDrag.direction == .next)
+    }
+
+    @Test("Outer page edges rubber-band progressively")
+    func pageRubberBand() {
+        let first = ZoomGeometry.rubberBanded(60, dimension: 390)
+        let second = ZoomGeometry.rubberBanded(120, dimension: 390)
+        #expect(first > 0)
+        #expect(second > first)
+        #expect(second - first < 60)
+        #expect(
+            ZoomGeometry.pageTranslation(
+                120,
+                pageWidth: 390,
+                canGoPrevious: false,
+                canGoNext: true
+            ) == second
+        )
+    }
+
+    @Test("Dismissal combines distance and downward velocity")
+    func dismissalDecision() {
+        #expect(
+            ZoomGeometry.shouldCompleteDismissal(
+                translation: 160,
+                velocity: 0,
+                viewportHeight: 844
+            )
+        )
+        #expect(
+            ZoomGeometry.shouldCompleteDismissal(
+                translation: 30,
+                velocity: 1_000,
+                viewportHeight: 844
+            )
+        )
+        #expect(
+            !ZoomGeometry.shouldCompleteDismissal(
+                translation: 30,
+                velocity: 80,
+                viewportHeight: 844
+            )
+        )
+        #expect(ZoomGeometry.dismissalProgress(translation: 1_000, viewportHeight: 844) == 1)
+    }
+
     @MainActor
     @Test("Size change preserves zoom instead of resetting to fit")
     func sizeChangePreservesZoom() {

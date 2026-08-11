@@ -38,6 +38,22 @@ private actor TimelinePageFixture {
     }
 }
 
+private actor MutableTimelinePageFixture {
+    private var assets: [TimelineAsset]
+
+    init(assets: [TimelineAsset] = []) {
+        self.assets = assets
+    }
+
+    func page(_ request: TimelinePageRequest) -> TimelineAssetPage {
+        TimelineAssetPage(assets: Array(assets.prefix(request.limit)), nextCursor: nil)
+    }
+
+    func replace(with assets: [TimelineAsset]) {
+        self.assets = assets
+    }
+}
+
 private final class TimelinePrefetchRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var requestBatches: [[MediaRequest]] = []
@@ -61,6 +77,89 @@ private final class TimelinePrefetchRecorder: @unchecked Sendable {
 
 @Suite("Library timeline state")
 struct TimelineStateTests {
+    @Test("Cached assets are published while refresh is still pending")
+    @MainActor
+    func cachedContentPrecedesRefreshCompletion() async {
+        let cached = TestAssetFactory.asset(id: TestAssetFactory.deterministicID(1))
+        let fixture = MutableTimelinePageFixture(assets: [cached])
+        let refresh = AssetRefreshEventStream.makeStream(bufferingPolicy: .unbounded)
+        let state = TimelineState(
+            accountNamespace: TestAssetFactory.accountNamespace,
+            dataClient: TimelineDataClient(
+                localPage: { request in await fixture.page(request) },
+                refreshEvents: { _, _ in refresh.stream }
+            )
+        )
+
+        let loading = Task { await state.loadIfNeeded() }
+        for _ in 0..<100 {
+            if state.isRefreshing { break }
+            await Task.yield()
+        }
+
+        #expect(state.contentState == .loaded)
+        #expect(state.assets == [cached])
+        #expect(state.isRefreshing)
+
+        let result = AssetRefreshResult(
+            receivedCount: 0,
+            storedCount: 0,
+            deletedCount: 0,
+            highestObservedUpdatedAt: nil
+        )
+        refresh.continuation.yield(.completed(result))
+        refresh.continuation.finish()
+        await loading.value
+        #expect(!state.isRefreshing)
+    }
+
+    @Test("A first committed refresh batch becomes browsable before a later failure")
+    @MainActor
+    func progressiveBatchSurvivesRefreshFailure() async {
+        let first = TestAssetFactory.asset(id: TestAssetFactory.deterministicID(1))
+        let fixture = MutableTimelinePageFixture()
+        let refresh = AssetRefreshEventStream.makeStream(bufferingPolicy: .unbounded)
+        let state = TimelineState(
+            accountNamespace: TestAssetFactory.accountNamespace,
+            dataClient: TimelineDataClient(
+                localPage: { request in await fixture.page(request) },
+                refreshEvents: { _, _ in refresh.stream }
+            )
+        )
+
+        let loading = Task { await state.loadIfNeeded() }
+        for _ in 0..<100 {
+            if state.isRefreshing { break }
+            await Task.yield()
+        }
+        await fixture.replace(with: [first])
+        refresh.continuation.yield(
+            .progress(
+                AssetRefreshProgress(
+                    stage: .showingLatest,
+                    processedCount: 1,
+                    storedCount: 1,
+                    totalCount: nil
+                )
+            )
+        )
+        for _ in 0..<100 {
+            if state.assets == [first] { break }
+            await Task.yield()
+        }
+
+        #expect(state.assets == [first])
+        #expect(state.contentState == .loaded)
+        #expect(state.isRefreshing)
+        #expect(state.refreshProgress?.processedCount == 1)
+
+        refresh.continuation.finish(throwing: TimelineProgressFailure.laterPage)
+        await loading.value
+        #expect(state.assets == [first])
+        #expect(state.refreshFailure != nil)
+        #expect(!state.isRefreshing)
+    }
+
     @Test("Local page is presented before refresh and pagination deduplicates stable IDs")
     @MainActor
     func localFirstPaginationAndDedupe() async {
@@ -214,6 +313,10 @@ struct TimelineStateTests {
     }
 }
 
+private enum TimelineProgressFailure: Error, Sendable {
+    case laterPage
+}
+
 @Suite("Library timeline prefetch")
 struct TimelinePrefetchTests {
     @Test("Fast direction-aware plan stays bounded and favors the scroll direction")
@@ -310,8 +413,31 @@ struct TimelineIdentityTests {
     @Test("Grid columns respond to phone and iPad widths with square-cell math")
     func responsiveGrid() {
         #expect(TimelineGridLayout.columnCount(for: 390) == 3)
-        #expect(TimelineGridLayout.columnCount(for: 1_024) == 9)
+        #expect(TimelineGridLayout.columnCount(for: 1_024) == 6)
         #expect(TimelineGridLayout.cellSide(for: 390) > 0)
         #expect(TimelineGridLayout.cellSide(for: 1_024) > TimelineGridLayout.cellSide(for: 390) * 0.8)
+    }
+
+    @Test("Refresh insertions preserve the visible asset anchor with a nearby deletion fallback")
+    func refreshAnchorPolicy() {
+        let first = TestAssetFactory.deterministicID(1)
+        let anchor = TestAssetFactory.deterministicID(2)
+        let third = TestAssetFactory.deterministicID(3)
+        let inserted = TestAssetFactory.deterministicID(4)
+
+        #expect(
+            TimelineScrollAnchorPolicy.preservedAnchor(
+                current: anchor,
+                previousIDs: [first, anchor, third],
+                refreshedIDs: [inserted, first, anchor, third]
+            ) == anchor
+        )
+        #expect(
+            TimelineScrollAnchorPolicy.preservedAnchor(
+                current: anchor,
+                previousIDs: [first, anchor, third],
+                refreshedIDs: [inserted, first, third]
+            ) == third
+        )
     }
 }
