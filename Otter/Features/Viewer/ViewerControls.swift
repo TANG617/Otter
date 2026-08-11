@@ -6,6 +6,7 @@ struct ViewerBottomToolbar: ToolbarContent {
     @Binding var isFavorite: Bool
 
     let isLoadingVariant: Bool
+    let isVariantSelectionDisabled: Bool
     let downloadState: ViewerDownloadState
     let onInfo: () -> Void
     let onDownload: () -> Void
@@ -32,7 +33,8 @@ struct ViewerBottomToolbar: ToolbarContent {
 
             ViewerMoreMenu(
                 selectedVariant: $selectedVariant,
-                isLoadingVariant: isLoadingVariant
+                isLoadingVariant: isLoadingVariant,
+                isSelectionDisabled: isVariantSelectionDisabled
             )
         }
     }
@@ -41,6 +43,7 @@ struct ViewerBottomToolbar: ToolbarContent {
 struct ViewerTopMoreMenu: View {
     @Binding var selectedVariant: AssetVariant
     let isLoadingVariant: Bool
+    let isSelectionDisabled: Bool
     let onInfo: () -> Void
 
     var body: some View {
@@ -61,6 +64,7 @@ struct ViewerTopMoreMenu: View {
             Label("Original", systemImage: "photo.badge.arrow.down")
                 .tag(AssetVariant.original)
         }
+        .disabled(isSelectionDisabled)
     }
 }
 
@@ -110,7 +114,7 @@ private struct ViewerDownloadButton: View {
         case .idle: ""
         case .working: "In progress"
         case .completed: "Complete"
-        case let .failed(failure): failure.message
+        case let .failed(_, failure): failure.message
         }
     }
 }
@@ -146,7 +150,7 @@ private struct ViewerRatingMenu: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .accessibilityLabel("Rating, \(ViewerRatingLabel.text(for: rating))")
-        .accessibilityValue(isFavorite ? "Favourite" : "")
+        .accessibilityValue(isFavorite ? "Favourite" : "Not Favourite")
         .accessibilityHint("Press and slide to choose Favourite, Unrated, or one to five stars")
         .accessibilityIdentifier(ViewerAccessibilityID.rate)
     }
@@ -173,6 +177,7 @@ private struct ViewerRatingMenu: View {
 private struct ViewerMoreMenu: View {
     @Binding var selectedVariant: AssetVariant
     let isLoadingVariant: Bool
+    let isSelectionDisabled: Bool
 
     var body: some View {
         Menu {
@@ -182,6 +187,7 @@ private struct ViewerMoreMenu: View {
                 Label("Original", systemImage: "photo.badge.arrow.down")
                     .tag(AssetVariant.original)
             }
+            .disabled(isSelectionDisabled)
 
             if isLoadingVariant {
                 Label("Loading selected version", systemImage: "progress.indicator")

@@ -139,6 +139,26 @@ struct ViewerPresentationStateTests {
         state.stop()
     }
 
+    @Test("Paging keeps a high-resolution replacement staged until settlement")
+    func pagingStagesHighResolutionUntilCompletion() async {
+        let items = viewerTestItems(count: 2)
+        let pipeline = ViewerTestPipeline()
+        let state = ViewerPresentationState(items: items, pipeline: pipeline)
+        state.updateViewport(size: CGSize(width: 390, height: 844), displayScale: 3)
+        state.start()
+        pipeline.yield(viewerTestFrame(quality: .preview), assetID: items[0].id, variant: .current)
+        await settleViewerTasks()
+
+        state.setInteractionState(.paging)
+        pipeline.yield(viewerTestFrame(quality: .fullsize), assetID: items[0].id, variant: .current)
+        await settleViewerTasks()
+        #expect(state.currentFrame?.quality == .preview)
+
+        state.setInteractionState(.idle)
+        #expect(state.currentFrame?.quality == .fullsize)
+        state.stop()
+    }
+
     @Test("A stale equal request cannot finish a newer viewport request")
     func requestABARace() async {
         let item = viewerTestItems(count: 1)[0]

@@ -137,7 +137,7 @@ struct AppRootView: View {
                 pipeline: runtime.mediaPipeline,
                 exporter: runtime.exporter,
                 photosExporter: PhotosExporter(),
-                currentDownloadAvailable: true,
+                exportAvailability: runtime.exportAvailability,
                 onRate: { item, rating in
                     do {
                         let result = try await runtime.ratingRepository.setRating(
@@ -173,7 +173,12 @@ struct AppRootView: View {
                 pipeline: runtime.mediaPipeline,
                 exporter: runtime.exporter,
                 photosExporter: FixturePhotosExporter(),
-                currentDownloadAvailable: environment.fixtureCurrentExportAvailable,
+                exportAvailability: AssetExportAvailability(
+                    current: environment.fixtureCurrentExportAvailable
+                        ? .available
+                        : .unavailable(.renditionUnsupported),
+                    original: .available
+                ),
                 onRate: { item, rating in
                     if environment.fixtureRatingWritesFail { return .failed }
                     guard let verified = await runtime.assetStore.setRating(rating, assetID: item.id) else {
@@ -292,7 +297,7 @@ private struct ViewerHostView: View {
     let pipeline: any MediaPipelineProtocol
     let exporter: any AssetExporting
     let photosExporter: any PhotosExporting
-    let currentDownloadAvailable: Bool
+    let exportAvailability: AssetExportAvailability
     let onRate: Rate
     let onFavorite: Favorite
     let onCurrentItemChanged: @MainActor @Sendable (UUID) -> Void
@@ -317,18 +322,14 @@ private struct ViewerHostView: View {
 
     private func download(_ item: ViewerItem, _ variant: AssetVariant) async -> ActionOutcome {
         let exportVariant: ExportVariant = variant == .current ? .current : .original
-        var prepared: PreparedExport?
         do {
-            if exportVariant == .current, !currentDownloadAvailable {
-                throw AssetExportError.currentUnavailable
-            }
-            let export = try await exporter.prepare(asset: item.descriptor, variant: exportVariant)
-            prepared = export
-            try await photosExporter.save(export)
-            await exporter.cleanup(export)
+            try await DirectPhotosDownload(
+                availability: exportAvailability,
+                exporter: exporter,
+                photosExporter: photosExporter
+            ).save(asset: item.descriptor, variant: exportVariant)
             return .success(message: "Saved to Photos")
         } catch is CancellationError {
-            if let prepared { await exporter.cleanup(prepared) }
             return .failure(
                 PresentationFailure(
                     title: "Download Cancelled",
@@ -337,7 +338,6 @@ private struct ViewerHostView: View {
                 )
             )
         } catch {
-            if let prepared { await exporter.cleanup(prepared) }
             let message = (error as? LocalizedError)?.errorDescription
                 ?? "The selected photo version could not be saved."
             return .failure(

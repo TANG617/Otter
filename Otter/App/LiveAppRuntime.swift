@@ -11,6 +11,7 @@ struct LiveAppRuntime: @unchecked Sendable {
     let diskCache: ByteDiskCache
     let mediaPipeline: MediaPipeline
     let exporter: AssetExporter
+    let exportAvailability: AssetExportAvailability
     let authenticationInvalidations: AsyncStream<Void>
 }
 
@@ -59,9 +60,13 @@ enum LiveAppRuntimeFactory {
             onAuthenticationInvalid: { authenticationSource.invalidate() }
         )
         let assetStore = LocalFirstAssetStore(database: database, remote: client)
-        let ratingAvailability: RatingWriteAvailability = record.serverVersion.major == 3
-            ? .unverified
-            : .unavailable
+        let capabilities = ImmichCapabilityProbe.capabilities(for: record.serverVersion)
+        let ratingAvailability: RatingWriteAvailability
+        if case .unavailable = capabilities.ratingWrite {
+            ratingAvailability = .unavailable
+        } else {
+            ratingAvailability = .unverified
+        }
         let ratingRepository = RatingRepository(
             database: database,
             remote: client,
@@ -99,17 +104,18 @@ enum LiveAppRuntimeFactory {
             stagingDirectory: directories.exportTransfers,
             onAuthenticationInvalid: { authenticationSource.invalidate() }
         )
+        let exportAvailability = AssetExportAvailability(serverCapabilities: capabilities)
         let exporter = try AssetExporter(
             requestBuilder: mediaRequestBuilder,
             transport: exportTransport,
             exportDirectory: directories.preparedExports,
-            currentExportAvailable: record.serverVersion.major == 3
+            availability: exportAvailability
         )
 
         return LiveAppRuntime(
             account: account,
             serverURL: serverURL,
-            capabilities: ImmichCapabilityProbe.capabilities(for: record.serverVersion),
+            capabilities: capabilities,
             client: client,
             database: database,
             assetStore: assetStore,
@@ -117,6 +123,7 @@ enum LiveAppRuntimeFactory {
             diskCache: diskCache,
             mediaPipeline: mediaPipeline,
             exporter: exporter,
+            exportAvailability: exportAvailability,
             authenticationInvalidations: authenticationSource.events
         )
     }

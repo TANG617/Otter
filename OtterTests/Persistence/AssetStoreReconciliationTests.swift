@@ -113,6 +113,78 @@ private actor PausingAssetRemote: AssetRemoteDataSource {
     }
 }
 
+private actor SerializedMetadataRemote: AssetRemoteDataSource {
+    enum Failure: Error {
+        case rating
+    }
+
+    private var storedAsset: TimelineAsset
+    private let ratingFails: Bool
+    private var activeWrites = 0
+    private var maximumActiveWrites = 0
+
+    init(asset: TimelineAsset, ratingFails: Bool = false) {
+        storedAsset = asset
+        self.ratingFails = ratingFails
+    }
+
+    func searchAssets(_ request: AssetSearchRequest, accountNamespace: UUID) async throws -> AssetSearchPage {
+        AssetSearchPage(assets: [storedAsset], nextContinuation: nil)
+    }
+
+    func asset(id: UUID, accountNamespace: UUID) async throws -> TimelineAsset {
+        storedAsset
+    }
+
+    func writeRating(_ rating: AssetRating?, assetID: UUID, accountNamespace: UUID) async throws {
+        activeWrites += 1
+        maximumActiveWrites = max(maximumActiveWrites, activeWrites)
+        defer { activeWrites -= 1 }
+        await Task.yield()
+        if ratingFails { throw Failure.rating }
+        storedAsset = replacing(storedAsset, rating: rating)
+    }
+
+    func writeFavorite(_ isFavorite: Bool, assetID: UUID, accountNamespace: UUID) async throws {
+        activeWrites += 1
+        maximumActiveWrites = max(maximumActiveWrites, activeWrites)
+        defer { activeWrites -= 1 }
+        await Task.yield()
+        storedAsset = replacing(storedAsset, isFavorite: isFavorite)
+    }
+
+    func maximumConcurrency() -> Int { maximumActiveWrites }
+
+    private func replacing(
+        _ asset: TimelineAsset,
+        rating: AssetRating? = nil,
+        isFavorite: Bool? = nil
+    ) -> TimelineAsset {
+        TimelineAsset(
+            accountNamespace: asset.accountNamespace,
+            id: asset.id,
+            ownerID: asset.ownerID,
+            mediaType: asset.mediaType,
+            localDateTime: asset.localDateTime,
+            fileCreatedAt: asset.fileCreatedAt,
+            createdAt: asset.createdAt,
+            updatedAt: asset.updatedAt,
+            width: asset.width,
+            height: asset.height,
+            thumbhash: asset.thumbhash,
+            checksum: asset.checksum,
+            originalFileName: asset.originalFileName,
+            originalMimeType: asset.originalMimeType,
+            isFavorite: isFavorite ?? asset.isFavorite,
+            isEdited: asset.isEdited,
+            isArchived: asset.isArchived,
+            isTrashed: asset.isTrashed,
+            visibility: asset.visibility,
+            rating: rating ?? asset.rating
+        )
+    }
+}
+
 @Suite("Local-first search reconciliation")
 struct AssetStoreReconciliationTests {
     @Test("Refresh stream exposes the first committed batch before the final page")
@@ -431,6 +503,67 @@ struct AssetStoreReconciliationTests {
         }
         #expect(try database.asset(id: local.id, accountNamespace: local.accountNamespace)?.isFavorite == false)
         #expect(await repository.writeAvailability == .unavailable)
+    }
+
+    @Test("Rating and Favourite writes for one asset are serialized and both verify")
+    func interleavedMetadataWritesSerialize() async throws {
+        let database = try makeDatabase()
+        let local = TestAssetFactory.asset(id: TestAssetFactory.deterministicID(21), rating: .one)
+        try database.upsertAssets([local], accountNamespace: local.accountNamespace)
+        let remote = SerializedMetadataRemote(asset: local)
+        let repository = RatingRepository(database: database, remote: remote)
+
+        let ratingTask = Task {
+            try await repository.setRating(
+                .five,
+                assetID: local.id,
+                accountNamespace: local.accountNamespace
+            )
+        }
+        let favoriteTask = Task {
+            try await repository.setFavorite(
+                true,
+                assetID: local.id,
+                accountNamespace: local.accountNamespace
+            )
+        }
+        _ = try await (ratingTask.value, favoriteTask.value)
+
+        let stored = try #require(try database.asset(id: local.id, accountNamespace: local.accountNamespace))
+        #expect(stored.rating == .five)
+        #expect(stored.isFavorite)
+        #expect(await remote.maximumConcurrency() == 1)
+    }
+
+    @Test("A Rating failure rolls back only Rating while queued Favourite succeeds")
+    func ratingFailureDoesNotRollbackFavorite() async throws {
+        let database = try makeDatabase()
+        let local = TestAssetFactory.asset(id: TestAssetFactory.deterministicID(22), rating: .one)
+        try database.upsertAssets([local], accountNamespace: local.accountNamespace)
+        let remote = SerializedMetadataRemote(asset: local, ratingFails: true)
+        let repository = RatingRepository(database: database, remote: remote)
+
+        let ratingTask = Task {
+            try await repository.setRating(
+                .five,
+                assetID: local.id,
+                accountNamespace: local.accountNamespace
+            )
+        }
+        let favoriteTask = Task {
+            try await repository.setFavorite(
+                true,
+                assetID: local.id,
+                accountNamespace: local.accountNamespace
+            )
+        }
+        _ = try? await ratingTask.value
+        _ = try await favoriteTask.value
+
+        let stored = try #require(try database.asset(id: local.id, accountNamespace: local.accountNamespace))
+        #expect(stored.rating == .one)
+        #expect(stored.isFavorite)
+        #expect(await remote.maximumConcurrency() == 1)
     }
 
     private func makeDatabase() throws -> AssetDatabase {

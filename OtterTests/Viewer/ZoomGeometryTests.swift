@@ -159,6 +159,58 @@ struct ZoomGeometryTests {
         #expect(abs(view.zoomScale - 2.25) < 0.001)
         #expect(view.contentSize.width > view.bounds.width)
     }
+
+    @MainActor
+    @Test("Double-tap remains zooming until the UIKit animator completes")
+    func doubleTapLifecycle() {
+        let view = ZoomingImageScrollView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        view.setSurface(viewerTestFrame(quality: .fullsize, width: 800, height: 600).surface)
+        view.layoutIfNeeded()
+        var interactions: [ViewerInteractionState] = []
+        view.onInteractionChanged = { interactions.append($0) }
+
+        view.performDoubleTap(at: CGPoint(x: 400, y: 300))
+
+        #expect(interactions == [.zooming])
+        view.finishProgrammaticZoomImmediatelyForTesting()
+        #expect(interactions == [.zooming, .idle])
+        #expect(view.zoomScale > view.minimumZoomScale)
+    }
+
+    @MainActor
+    @Test("Reduced Motion double-tap completes synchronously without an animator")
+    func reducedMotionDoubleTapLifecycle() {
+        let view = ZoomingImageScrollView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        view.reduceMotion = true
+        view.setSurface(viewerTestFrame(quality: .fullsize, width: 800, height: 600).surface)
+        view.layoutIfNeeded()
+        var interactions: [ViewerInteractionState] = []
+        view.onInteractionChanged = { interactions.append($0) }
+
+        view.performDoubleTap(at: CGPoint(x: 400, y: 300))
+
+        #expect(interactions == [.zooming, .idle])
+        #expect(view.zoomScale > view.minimumZoomScale)
+    }
+
+    @MainActor
+    @Test("The custom one-finger pan coexists with the scroll view pan")
+    func recognizerConfiguration() {
+        let view = ZoomingImageScrollView()
+        let customPans = view.gestureRecognizers?
+            .compactMap { $0 as? UIPanGestureRecognizer }
+            .filter { $0 !== view.panGestureRecognizer } ?? []
+        let taps = view.gestureRecognizers?.compactMap { $0 as? UITapGestureRecognizer } ?? []
+
+        #expect(customPans.count == 1)
+        #expect(customPans[0].maximumNumberOfTouches == 1)
+        #expect(taps.contains { $0.numberOfTapsRequired == 1 })
+        #expect(taps.contains { $0.numberOfTapsRequired == 2 })
+        #expect(view.gestureRecognizer(
+            customPans[0],
+            shouldRecognizeSimultaneouslyWith: view.panGestureRecognizer
+        ))
+    }
 }
 
 @Suite("Viewer media identity")

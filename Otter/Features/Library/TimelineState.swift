@@ -9,6 +9,18 @@ enum TimelineBrowseScope: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+struct TimelineMutationDiagnostics: Equatable, Sendable {
+    fileprivate(set) var fullSectionRebuildCount = 0
+    fileprivate(set) var incrementalMetadataUpdateCount = 0
+    fileprivate(set) var incrementalPageAppendCount = 0
+    fileprivate(set) var appendFallbackRebuildCount = 0
+}
+
+private struct TimelineSectionLocation: Equatable, Sendable {
+    let sectionIndex: Int
+    let assetIndex: Int
+}
+
 @MainActor
 @Observable
 final class TimelineState {
@@ -31,6 +43,7 @@ final class TimelineState {
     private(set) var refreshFailure: PresentationFailure?
     private(set) var paginationFailure: PresentationFailure?
     private(set) var browseScope: TimelineBrowseScope = .all
+    private(set) var mutationDiagnostics = TimelineMutationDiagnostics()
 
     let accountNamespace: UUID
     let pageSize: Int
@@ -39,6 +52,8 @@ final class TimelineState {
     private let calendar: Calendar
     private(set) var nextCursor: TimelineCursor?
     private var observedCursors: Set<TimelineCursor> = []
+    private var sectionIndices: [Date: Int] = [:]
+    private var assetSectionLocations: [UUID: TimelineSectionLocation] = [:]
 
     init(
         accountNamespace: UUID,
@@ -155,8 +170,30 @@ final class TimelineState {
     func applyVerifiedUpdate(_ asset: TimelineAsset) {
         guard asset.accountNamespace == accountNamespace,
               let index = assetIndices[asset.id] else { return }
+        let previous = assets[index]
+        guard previous.isTimelineEligible == asset.isTimelineEligible,
+              asset.isTimelineEligible,
+              previous.timelineDate == asset.timelineDate,
+              let sectionKey = sectionStart(for: asset),
+              sectionStart(for: previous) == sectionKey,
+              let location = assetSectionLocations[asset.id],
+              sectionIndices[sectionKey] == location.sectionIndex,
+              sections.indices.contains(location.sectionIndex),
+              sections[location.sectionIndex].assets.indices.contains(location.assetIndex) else {
+            var replacement = assets
+            replacement[index] = asset
+            replace(with: replacement)
+            return
+        }
+
         assets[index] = asset
-        rebuildSections()
+        var sectionAssets = sections[location.sectionIndex].assets
+        sectionAssets[location.assetIndex] = asset
+        sections[location.sectionIndex] = TimelineSection(
+            day: sections[location.sectionIndex].day,
+            assets: sectionAssets
+        )
+        mutationDiagnostics.incrementalMetadataUpdateCount += 1
     }
 
     func setBrowseScope(_ scope: TimelineBrowseScope) {
@@ -220,13 +257,23 @@ final class TimelineState {
         }
         guard !additions.isEmpty else { return }
 
+        guard Self.isOrdered(additions),
+              additions.first.map({ first in
+                  assets.last.map { Self.precedes($0, first) } ?? true
+              }) ?? true else {
+            mutationDiagnostics.appendFallbackRebuildCount += 1
+            replace(with: assets + additions)
+            return
+        }
+
         let startIndex = assets.count
         assets.append(contentsOf: additions)
         for (offset, asset) in additions.enumerated() {
             assetIndices[asset.id] = startIndex + offset
         }
 
-        rebuildSections()
+        appendSections(additions)
+        mutationDiagnostics.incrementalPageAppendCount += 1
         windowRevision += 1
     }
 
@@ -238,6 +285,58 @@ final class TimelineState {
             sections = groupedSections(component: .month)
         case .years:
             sections = groupedSections(component: .year)
+        }
+        rebuildSectionIndices()
+        mutationDiagnostics.fullSectionRebuildCount += 1
+    }
+
+    private func appendSections(_ additions: [TimelineAsset]) {
+        for asset in additions {
+            guard let start = sectionStart(for: asset) else { continue }
+            if let lastIndex = sections.indices.last,
+               sections[lastIndex].day == start {
+                var sectionAssets = sections[lastIndex].assets
+                let assetIndex = sectionAssets.count
+                sectionAssets.append(asset)
+                sections[lastIndex] = TimelineSection(day: start, assets: sectionAssets)
+                assetSectionLocations[asset.id] = TimelineSectionLocation(
+                    sectionIndex: lastIndex,
+                    assetIndex: assetIndex
+                )
+            } else {
+                let sectionIndex = sections.count
+                sections.append(TimelineSection(day: start, assets: [asset]))
+                sectionIndices[start] = sectionIndex
+                assetSectionLocations[asset.id] = TimelineSectionLocation(
+                    sectionIndex: sectionIndex,
+                    assetIndex: 0
+                )
+            }
+        }
+    }
+
+    private func rebuildSectionIndices() {
+        sectionIndices.removeAll(keepingCapacity: true)
+        assetSectionLocations.removeAll(keepingCapacity: true)
+        for (sectionIndex, section) in sections.enumerated() {
+            sectionIndices[section.day] = sectionIndex
+            for (assetIndex, asset) in section.assets.enumerated() {
+                assetSectionLocations[asset.id] = TimelineSectionLocation(
+                    sectionIndex: sectionIndex,
+                    assetIndex: assetIndex
+                )
+            }
+        }
+    }
+
+    private func sectionStart(for asset: TimelineAsset) -> Date? {
+        switch browseScope {
+        case .all:
+            calendar.startOfDay(for: asset.timelineDate)
+        case .months:
+            calendar.dateInterval(of: .month, for: asset.timelineDate)?.start
+        case .years:
+            calendar.dateInterval(of: .year, for: asset.timelineDate)?.start
         }
     }
 
@@ -280,12 +379,18 @@ final class TimelineState {
     }
 
     private static func ordered(_ assets: [TimelineAsset]) -> [TimelineAsset] {
-        assets.sorted {
-            if $0.timelineDate != $1.timelineDate {
-                return $0.timelineDate > $1.timelineDate
-            }
-            return $0.id.uuidString.lowercased() > $1.id.uuidString.lowercased()
+        assets.sorted(by: precedes)
+    }
+
+    private static func precedes(_ lhs: TimelineAsset, _ rhs: TimelineAsset) -> Bool {
+        if lhs.timelineDate != rhs.timelineDate {
+            return lhs.timelineDate > rhs.timelineDate
         }
+        return lhs.id.uuidString.lowercased() > rhs.id.uuidString.lowercased()
+    }
+
+    private static func isOrdered(_ assets: [TimelineAsset]) -> Bool {
+        zip(assets, assets.dropFirst()).allSatisfy { precedes($0.0, $0.1) }
     }
 
     private static let libraryFailure = PresentationFailure(

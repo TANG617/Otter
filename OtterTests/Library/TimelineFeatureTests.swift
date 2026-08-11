@@ -54,6 +54,29 @@ private actor MutableTimelinePageFixture {
     }
 }
 
+private actor GeneratedTimelinePageFixture {
+    private let assets: [TimelineAsset]
+    private let indices: [UUID: Int]
+    private(set) var requests: [TimelinePageRequest] = []
+
+    init(assets: [TimelineAsset]) {
+        self.assets = assets
+        indices = Dictionary(uniqueKeysWithValues: assets.enumerated().map { ($0.element.id, $0.offset) })
+    }
+
+    func page(_ request: TimelinePageRequest) -> TimelineAssetPage {
+        requests.append(request)
+        let start = request.after.flatMap { indices[$0.assetID] }.map { $0 + 1 } ?? 0
+        guard start < assets.count else { return TimelineAssetPage(assets: [], nextCursor: nil) }
+        let end = min(start + request.limit, assets.count)
+        let page = Array(assets[start..<end])
+        let cursor = end < assets.count ? page.last.map {
+            TimelineCursor(date: $0.timelineDate, assetID: $0.id)
+        } : nil
+        return TimelineAssetPage(assets: page, nextCursor: cursor)
+    }
+}
+
 private final class TimelinePrefetchRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var requestBatches: [[MediaRequest]] = []
@@ -299,6 +322,139 @@ struct TimelineStateTests {
         #expect(state.assetIndices[asset.id] == 0)
     }
 
+    @Test("A 10k metadata update is incremental for day month and year sections")
+    @MainActor
+    func tenThousandMetadataUpdateStaysIncremental() async {
+        let base = Date(timeIntervalSince1970: 2_000_000_000)
+        let assets = (0..<10_000).map { index in
+            TestAssetFactory.asset(
+                id: TestAssetFactory.deterministicID(index + 1),
+                localDateTime: base.addingTimeInterval(Double(-index * 60))
+            )
+        }
+        let fixture = GeneratedTimelinePageFixture(assets: assets)
+        let state = TimelineState(
+            accountNamespace: TestAssetFactory.accountNamespace,
+            dataClient: TimelineDataClient(
+                localPage: { request in await fixture.page(request) },
+                refresh: { _, _ in
+                    AssetRefreshResult(
+                        receivedCount: 0,
+                        storedCount: assets.count,
+                        deletedCount: 0,
+                        highestObservedUpdatedAt: nil
+                    )
+                }
+            ),
+            pageSize: 500,
+            calendar: utcCalendar
+        )
+        await state.loadIfNeeded()
+        while state.canLoadMore { await state.loadMore() }
+        #expect(state.assets.count == 10_000)
+
+        let anchor = state.assets[5_000].id
+        let initialRevision = state.windowRevision
+        for (offset, scope) in TimelineBrowseScope.allCases.enumerated() {
+            state.setBrowseScope(scope)
+            let before = state.mutationDiagnostics
+            let existing = state.assets[5_000]
+            state.applyVerifiedUpdate(
+                replacing(existing, rating: AssetRating(rawValue: offset + 1))
+            )
+
+            #expect(
+                state.mutationDiagnostics.incrementalMetadataUpdateCount
+                    == before.incrementalMetadataUpdateCount + 1
+            )
+            #expect(
+                state.mutationDiagnostics.fullSectionRebuildCount
+                    == before.fullSectionRebuildCount
+            )
+            #expect(state.windowRevision == initialRevision)
+            #expect(state.assetIndices[anchor] == 5_000)
+            #expect(state.sections.flatMap(\.assets).first(where: { $0.id == anchor })?.rating?.rawValue == offset + 1)
+        }
+    }
+
+    @Test("One hundred ordered pages append without full section rebuilds")
+    @MainActor
+    func oneHundredPagesStayIncremental() async {
+        let base = Date(timeIntervalSince1970: 2_000_000_000)
+        let assets = (0..<10_000).map { index in
+            TestAssetFactory.asset(
+                id: TestAssetFactory.deterministicID(index + 1),
+                localDateTime: base.addingTimeInterval(Double(-index * 90))
+            )
+        }
+        let fixture = GeneratedTimelinePageFixture(assets: assets)
+        let state = TimelineState(
+            accountNamespace: TestAssetFactory.accountNamespace,
+            dataClient: TimelineDataClient(
+                localPage: { request in await fixture.page(request) },
+                refresh: { _, _ in
+                    AssetRefreshResult(
+                        receivedCount: 0,
+                        storedCount: assets.count,
+                        deletedCount: 0,
+                        highestObservedUpdatedAt: nil
+                    )
+                }
+            ),
+            pageSize: 100,
+            calendar: utcCalendar
+        )
+        await state.loadIfNeeded()
+        let rebuildsAfterInitialWindow = state.mutationDiagnostics.fullSectionRebuildCount
+        while state.canLoadMore { await state.loadMore() }
+
+        #expect(state.assets.count == 10_000)
+        #expect(state.mutationDiagnostics.incrementalPageAppendCount == 99)
+        #expect(state.mutationDiagnostics.fullSectionRebuildCount == rebuildsAfterInitialWindow)
+        #expect(state.mutationDiagnostics.appendFallbackRebuildCount == 0)
+        #expect(await fixture.requests.count == 101)
+    }
+
+    @Test("Date movement and invalid append order use the explicit rebuild fallback")
+    @MainActor
+    func orderingFallbacksAreCounted() async {
+        let first = TestAssetFactory.asset(
+            id: TestAssetFactory.deterministicID(1),
+            localDateTime: Date(timeIntervalSince1970: 300)
+        )
+        let second = TestAssetFactory.asset(
+            id: TestAssetFactory.deterministicID(2),
+            localDateTime: Date(timeIntervalSince1970: 200)
+        )
+        let unexpectedlyNew = TestAssetFactory.asset(
+            id: TestAssetFactory.deterministicID(3),
+            localDateTime: Date(timeIntervalSince1970: 400)
+        )
+        let cursor = TimelineCursor(date: second.timelineDate, assetID: second.id)
+        let fixture = TimelinePageFixture(
+            first: TimelineAssetPage(assets: [first, second], nextCursor: cursor),
+            subsequent: [cursor: TimelineAssetPage(assets: [unexpectedlyNew], nextCursor: nil)]
+        )
+        let state = TimelineState(
+            accountNamespace: TestAssetFactory.accountNamespace,
+            dataClient: client(fixture),
+            pageSize: 2,
+            calendar: utcCalendar
+        )
+        await state.loadIfNeeded()
+        await state.loadMore()
+
+        #expect(state.assets.map(\.id) == [unexpectedlyNew.id, first.id, second.id])
+        #expect(state.mutationDiagnostics.appendFallbackRebuildCount == 1)
+        let rebuilds = state.mutationDiagnostics.fullSectionRebuildCount
+
+        state.applyVerifiedUpdate(
+            replacing(second, timelineDate: Date(timeIntervalSince1970: 500))
+        )
+        #expect(state.assets.first?.id == second.id)
+        #expect(state.mutationDiagnostics.fullSectionRebuildCount == rebuilds + 1)
+    }
+
     private func client(_ fixture: TimelinePageFixture) -> TimelineDataClient {
         TimelineDataClient(
             localPage: { request in try await fixture.page(request) },
@@ -311,6 +467,35 @@ struct TimelineStateTests {
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         return calendar
     }
+}
+
+private func replacing(
+    _ asset: TimelineAsset,
+    timelineDate: Date? = nil,
+    rating: AssetRating? = nil
+) -> TimelineAsset {
+    TimelineAsset(
+        accountNamespace: asset.accountNamespace,
+        id: asset.id,
+        ownerID: asset.ownerID,
+        mediaType: asset.mediaType,
+        localDateTime: timelineDate ?? asset.localDateTime,
+        fileCreatedAt: asset.fileCreatedAt,
+        createdAt: asset.createdAt,
+        updatedAt: asset.updatedAt,
+        width: asset.width,
+        height: asset.height,
+        thumbhash: asset.thumbhash,
+        checksum: asset.checksum,
+        originalFileName: asset.originalFileName,
+        originalMimeType: asset.originalMimeType,
+        isFavorite: asset.isFavorite,
+        isEdited: asset.isEdited,
+        isArchived: asset.isArchived,
+        isTrashed: asset.isTrashed,
+        visibility: asset.visibility,
+        rating: rating ?? asset.rating
+    )
 }
 
 private enum TimelineProgressFailure: Error, Sendable {
@@ -408,6 +593,18 @@ struct TimelineIdentityTests {
         #expect(unratedDescriptor.revisions == ratedDescriptor.revisions)
         #expect(TimelineAccessibilityLabel.asset(unrated).contains("Unrated"))
         #expect(TimelineAccessibilityLabel.asset(rated).contains("5 stars"))
+    }
+
+    @Test("Favourite changes never alter media content revisions")
+    func favoriteIsMetadataOnly() {
+        let id = TestAssetFactory.deterministicID(43)
+        let standard = TestAssetFactory.asset(id: id, isFavorite: false)
+        let favorite = TestAssetFactory.asset(id: id, isFavorite: true)
+
+        #expect(
+            TimelineMediaDemand.descriptor(for: standard).revisions
+                == TimelineMediaDemand.descriptor(for: favorite).revisions
+        )
     }
 
     @Test("Grid columns respond to phone and iPad widths with square-cell math")

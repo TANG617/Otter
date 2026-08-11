@@ -20,7 +20,7 @@ struct ViewerAccessibilityTests {
     @Test("Rating labels cover every selectable state")
     func ratingLabels() {
         #expect(ViewerRatingLabel.text(for: nil) == "Unrated")
-        #expect(ViewerRatingLabel.text(for: .rejected) == "Reject")
+        #expect(ViewerRatingLabel.text(for: .rejected) == "Rejected")
         #expect(ViewerRatingLabel.text(for: .one) == "1 Star")
         #expect(ViewerRatingLabel.text(for: .five) == "5 Stars")
         #expect(ViewerRatingChoice.stars.map(\.accessibilityIdentifier) == [

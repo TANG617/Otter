@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 struct ViewerItem: Hashable, Identifiable, Sendable {
     let descriptor: MediaAssetDescriptor
@@ -57,13 +58,116 @@ enum ViewerFavoriteMutationOutcome: Equatable, Sendable {
     case failed
 }
 
+struct ViewerDownloadRequest: Equatable, Sendable {
+    let assetID: UUID
+    let variant: AssetVariant
+    let token: UUID
+}
+
 enum ViewerDownloadState: Equatable, Sendable {
     case idle
-    case working
-    case completed
-    case failed(PresentationFailure)
+    case working(ViewerDownloadRequest)
+    case completed(ViewerDownloadRequest)
+    case failed(ViewerDownloadRequest, PresentationFailure)
 
-    var isWorking: Bool { self == .working }
+    var isWorking: Bool {
+        if case .working = self { return true }
+        return false
+    }
+}
+
+@MainActor
+@Observable
+final class ViewerDownloadCoordinator {
+    typealias Perform = @MainActor @Sendable (ViewerItem, AssetVariant) async -> ActionOutcome
+    typealias CurrentAssetID = @MainActor @Sendable () -> UUID?
+
+    private(set) var state: ViewerDownloadState = .idle
+    private(set) var successGeneration = 0
+
+    private var task: Task<Void, Never>?
+    private var retryItem: ViewerItem?
+
+    func start(
+        item: ViewerItem,
+        variant: AssetVariant,
+        perform: @escaping Perform,
+        currentAssetID: @escaping CurrentAssetID
+    ) {
+        guard !state.isWorking else { return }
+        let request = ViewerDownloadRequest(
+            assetID: item.id,
+            variant: variant,
+            token: UUID()
+        )
+        retryItem = nil
+        state = .working(request)
+        task = Task { [weak self] in
+            let outcome = await perform(item, request.variant)
+            guard !Task.isCancelled else { return }
+            self?.finish(
+                outcome,
+                request: request,
+                item: item,
+                isCurrent: currentAssetID() == request.assetID
+            )
+        }
+    }
+
+    func retry(
+        perform: @escaping Perform,
+        currentAssetID: @escaping CurrentAssetID
+    ) {
+        guard case let .failed(request, _) = state,
+              let retryItem,
+              retryItem.id == request.assetID,
+              currentAssetID() == request.assetID else { return }
+        state = .idle
+        start(
+            item: retryItem,
+            variant: request.variant,
+            perform: perform,
+            currentAssetID: currentAssetID
+        )
+    }
+
+    func resetAfterVariantChange() {
+        guard !state.isWorking else { return }
+        retryItem = nil
+        state = .idle
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+        retryItem = nil
+        state = .idle
+    }
+
+    private func finish(
+        _ outcome: ActionOutcome,
+        request: ViewerDownloadRequest,
+        item: ViewerItem,
+        isCurrent: Bool
+    ) {
+        guard case let .working(activeRequest) = state,
+              activeRequest == request else { return }
+        task = nil
+        guard isCurrent else {
+            retryItem = nil
+            state = .idle
+            return
+        }
+        switch outcome {
+        case .success:
+            retryItem = nil
+            state = .completed(request)
+            successGeneration &+= 1
+        case let .failure(failure):
+            retryItem = item
+            state = .failed(request, failure)
+        }
+    }
 }
 
 enum ViewerInteractionState: Equatable, Sendable {
@@ -184,7 +288,7 @@ enum ViewerAccessibilityID {
 enum ViewerRatingLabel {
     static func text(for rating: AssetRating?) -> String {
         guard let rating else { return "Unrated" }
-        if rating == .rejected { return "Reject" }
+        if rating == .rejected { return "Rejected" }
         return rating == .one ? "1 Star" : "\(rating.rawValue) Stars"
     }
 }

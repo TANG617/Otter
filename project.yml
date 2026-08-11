@@ -29,8 +29,6 @@ targets:
       base:
         PRODUCT_NAME: Otter
         PRODUCT_BUNDLE_IDENTIFIER: "$(OTTER_APP_BUNDLE_IDENTIFIER)"
-        DEVELOPMENT_TEAM: PRTA2MGMQH
-        CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_CFBundleDisplayName: Otter
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.photography

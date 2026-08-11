@@ -14,9 +14,7 @@ struct FullscreenViewer: View {
     @State private var verifiedRatings: [UUID: VerifiedRating] = [:]
     @State private var favoriteTasks: [UUID: Task<Void, Never>] = [:]
     @State private var verifiedFavorites: [UUID: Bool] = [:]
-    @State private var downloadTask: Task<Void, Never>?
-    @State private var downloadState: ViewerDownloadState = .idle
-    @State private var downloadFeedbackTrigger = 0
+    @State private var downloadCoordinator = ViewerDownloadCoordinator()
     @State private var isChromeVisible = true
     @State private var ratingFailure: PresentationFailure?
     @State private var favoriteFailure: PresentationFailure?
@@ -32,6 +30,7 @@ struct FullscreenViewer: View {
 
     private let actions: ViewerActions
     private let isObscured: Bool
+    private let pipeline: any MediaPipelineProtocol
     private let loadMore: @MainActor @Sendable () async -> [ViewerItem]
 
     init(
@@ -52,6 +51,7 @@ struct FullscreenViewer: View {
             )
         )
         self.isObscured = isObscured
+        self.pipeline = pipeline
         self.loadMore = loadMore
         self.actions = actions
     }
@@ -83,7 +83,7 @@ struct FullscreenViewer: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             filmstripBar
         }
-        .sensoryFeedback(.success, trigger: downloadFeedbackTrigger)
+        .sensoryFeedback(.success, trigger: downloadCoordinator.successGeneration)
         .sheet(item: $infoItem) { item in
             ViewerInfoView(item: item, rating: state.rating(for: item.id))
                 .accessibilityAddTraits(.isModal)
@@ -185,6 +185,7 @@ struct FullscreenViewer: View {
                 ViewerTopMoreMenu(
                     selectedVariant: variantSelection,
                     isLoadingVariant: state.isLoadingSelectedVariant,
+                    isSelectionDisabled: downloadCoordinator.state.isWorking,
                     onInfo: { infoItem = item }
                 )
             }
@@ -194,7 +195,8 @@ struct FullscreenViewer: View {
                 rating: ratingSelection(for: item),
                 isFavorite: favoriteSelection(for: item),
                 isLoadingVariant: state.isLoadingSelectedVariant,
-                downloadState: downloadState,
+                isVariantSelectionDisabled: downloadCoordinator.state.isWorking,
+                downloadState: downloadCoordinator.state,
                 onInfo: { infoItem = item },
                 onDownload: { startDownload(for: item) }
             )
@@ -208,7 +210,8 @@ struct FullscreenViewer: View {
                 items: state.items,
                 currentIndex: state.currentIndex,
                 frame: state.frame(for:),
-                onSelect: state.select(index:)
+                pipeline: pipeline,
+                onSelect: { state.select(index: $0) }
             )
             .frame(height: 60)
             .padding(.horizontal)
@@ -274,8 +277,8 @@ struct FullscreenViewer: View {
                     Text(failure.message)
                         .font(.footnote)
                         .lineLimit(2)
-                    if downloadFailure != nil, let item = state.currentItem {
-                        Button("Retry") { startDownload(for: item) }
+                    if downloadFailure != nil {
+                        Button("Retry") { retryDownload() }
                             .buttonStyle(.bordered)
                     }
                 }
@@ -290,7 +293,7 @@ struct FullscreenViewer: View {
     }
 
     private var downloadFailure: PresentationFailure? {
-        guard case let .failed(failure) = downloadState else { return nil }
+        guard case let .failed(_, failure) = downloadCoordinator.state else { return nil }
         return failure
     }
 
@@ -336,7 +339,8 @@ struct FullscreenViewer: View {
         Binding(
             get: { state.selectedVariant },
             set: {
-                downloadState = .idle
+                guard !downloadCoordinator.state.isWorking else { return }
+                downloadCoordinator.resetAfterVariantChange()
                 state.selectVariant($0)
             }
         )
@@ -363,7 +367,7 @@ struct FullscreenViewer: View {
         ratingTasks.removeAll()
         favoriteTasks.values.forEach { $0.cancel() }
         favoriteTasks.removeAll()
-        downloadTask?.cancel()
+        downloadCoordinator.cancel()
         state.stop()
     }
 
@@ -373,9 +377,7 @@ struct FullscreenViewer: View {
     }
 
     private func currentItemChanged() {
-        downloadTask?.cancel()
-        downloadTask = nil
-        downloadState = .idle
+        downloadCoordinator.cancel()
         ratingFailure = nil
         favoriteFailure = nil
         notifyCurrentItemChanged()
@@ -443,7 +445,10 @@ struct FullscreenViewer: View {
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            state.select(index: state.currentIndex + direction.rawValue)
+            state.select(
+                index: state.currentIndex + direction.rawValue,
+                settlesInteractionAutomatically: false
+            )
             pageTranslation = continuousOffset
             pageGesture.settle(at: continuousOffset)
         }
@@ -459,6 +464,8 @@ struct FullscreenViewer: View {
         )) {
             pageTranslation = target
             contentOpacity = 1
+        } completion: {
+            state.setInteractionState(.idle)
         }
         pageGesture.settle(at: target)
     }
@@ -467,8 +474,12 @@ struct FullscreenViewer: View {
         withAnimation(.easeOut(duration: 0.09)) {
             contentOpacity = 0
         } completion: {
-            state.select(index: index)
-            withAnimation(.easeIn(duration: 0.09)) { contentOpacity = 1 }
+            state.select(index: index, settlesInteractionAutomatically: false)
+            withAnimation(.easeIn(duration: 0.09)) {
+                contentOpacity = 1
+            } completion: {
+                state.setInteractionState(.idle)
+            }
         }
     }
 
@@ -532,6 +543,8 @@ struct FullscreenViewer: View {
             dismissalScale = 1
             backgroundOpacity = 1
             contentOpacity = 1
+        } completion: {
+            state.setInteractionState(.idle)
         }
         dismissalGesture.settle(at: 0)
     }
@@ -580,7 +593,6 @@ struct FullscreenViewer: View {
             get: { state.rating(for: item.id) },
             set: { rating in
                 ratingFailure = nil
-                favoriteFailure = nil
                 let previous = state.rating(for: item.id)
                 if verifiedRatings[item.id] == nil {
                     verifiedRatings[item.id] = VerifiedRating(value: previous)
@@ -592,6 +604,7 @@ struct FullscreenViewer: View {
                     guard !Task.isCancelled else { return }
                     let verifiedBeforeRequest = verifiedRatings[item.id]?.value ?? previous
                     let outcome = await actions.onRate(item, rating)
+                    guard !Task.isCancelled else { return }
                     let isLatestOptimisticValue = state.rating(for: item.id) == rating
                     switch outcome {
                     case let .verified(verified):
@@ -618,7 +631,6 @@ struct FullscreenViewer: View {
             get: { state.isFavorite(item.id) },
             set: { isFavorite in
                 favoriteFailure = nil
-                ratingFailure = nil
                 let previous = state.isFavorite(item.id)
                 if verifiedFavorites[item.id] == nil {
                     verifiedFavorites[item.id] = previous
@@ -630,6 +642,7 @@ struct FullscreenViewer: View {
                     guard !Task.isCancelled else { return }
                     let verifiedBeforeRequest = verifiedFavorites[item.id] ?? previous
                     let outcome = await actions.onFavorite(item, isFavorite)
+                    guard !Task.isCancelled else { return }
                     let isLatestOptimisticValue = state.isFavorite(item.id) == isFavorite
                     switch outcome {
                     case let .verified(verified):
@@ -653,21 +666,19 @@ struct FullscreenViewer: View {
     }
 
     private func startDownload(for item: ViewerItem) {
-        guard !downloadState.isWorking else { return }
-        downloadTask?.cancel()
-        downloadState = .working
-        downloadTask = Task {
-            let outcome = await actions.onDownload(item, state.selectedVariant)
-            guard !Task.isCancelled, state.currentItem?.id == item.id else { return }
-            switch outcome {
-            case .success:
-                downloadState = .completed
-                downloadFeedbackTrigger &+= 1
-            case let .failure(failure):
-                downloadState = .failed(failure)
-            }
-            downloadTask = nil
-        }
+        downloadCoordinator.start(
+            item: item,
+            variant: state.selectedVariant,
+            perform: actions.onDownload,
+            currentAssetID: { state.currentItem?.id }
+        )
+    }
+
+    private func retryDownload() {
+        downloadCoordinator.retry(
+            perform: actions.onDownload,
+            currentAssetID: { state.currentItem?.id }
+        )
     }
 
     private enum FocusedControl: Hashable {
@@ -676,67 +687,6 @@ struct FullscreenViewer: View {
 
     private struct VerifiedRating {
         let value: AssetRating?
-    }
-}
-
-private struct ViewerFilmstrip: View {
-    let items: [ViewerItem]
-    let currentIndex: Int
-    let frame: (UUID) -> MediaFrame?
-    let onSelect: (Int) -> Void
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 8) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        Button {
-                            onSelect(index)
-                        } label: {
-                            thumbnail(for: item)
-                                .frame(width: index == currentIndex ? 56 : 52, height: index == currentIndex ? 56 : 52)
-                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                                .overlay {
-                                    if index == currentIndex {
-                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                            .stroke(Color.accentColor, lineWidth: 3)
-                                    }
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Photo \(index + 1) of \(items.count)")
-                        .accessibilityAddTraits(index == currentIndex ? .isSelected : [])
-                        .id(item.id)
-                    }
-                }
-                .padding(.horizontal, 4)
-                .frame(minHeight: 60)
-            }
-            .frame(maxWidth: 760)
-            .accessibilityIdentifier(ViewerAccessibilityID.filmstrip)
-            .onChange(of: currentIndex, initial: true) { _, index in
-                guard items.indices.contains(index) else { return }
-                withAnimation(.easeOut(duration: 0.22)) {
-                    proxy.scrollTo(items[index].id, anchor: .center)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func thumbnail(for item: ViewerItem) -> some View {
-        if let surface = frame(item.id)?.surface {
-            Image(decorative: surface.cgImage, scale: 1)
-                .resizable()
-                .scaledToFill()
-        } else {
-            ZStack {
-                Color(uiColor: .quaternarySystemFill)
-                Image(systemName: "photo")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
     }
 }
 

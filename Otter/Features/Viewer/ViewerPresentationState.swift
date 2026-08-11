@@ -142,7 +142,7 @@ final class ViewerPresentationState {
         reconcileRequests()
     }
 
-    func select(index: Int) {
+    func select(index: Int, settlesInteractionAutomatically: Bool = true) {
         guard items.indices.contains(index), index != currentIndex else { return }
         interactionState = .paging
         currentIndex = index
@@ -150,6 +150,7 @@ final class ViewerPresentationState {
         resetGeneration &+= 1
         showCachedSelectedVariantIfAvailable()
         reconcileRequests()
+        guard settlesInteractionAutomatically else { return }
         Task { [weak self] in
             await Task.yield()
             guard let self, self.interactionState == .paging else { return }

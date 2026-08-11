@@ -79,6 +79,9 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
     private var dragStartOffset: CGPoint = .zero
     private var didBeginCustomDrag = false
     private var isHorizontalHandoffActive = false
+    private var suppressNextScrollIdle = false
+    private var programmaticZoomAnimator: UIViewPropertyAnimator?
+    private var programmaticZoomToken: UUID?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -123,6 +126,7 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
     }
 
     func clearSurface() {
+        interruptProgrammaticZoom(notifyIdle: false)
         currentSurface = nil
         imageView.image = nil
         imageView.frame = .zero
@@ -144,6 +148,7 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
 
     func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
         guard !isApplyingGeometry else { return }
+        if programmaticZoomToken != nil { return }
         onInteractionChanged(.zooming)
     }
 
@@ -157,21 +162,32 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
     func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
         guard !isApplyingGeometry else { return }
         onZoomScaleChanged(scale)
+        if programmaticZoomToken != nil { return }
         onInteractionChanged(.idle)
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         guard !isApplyingGeometry else { return }
+        suppressNextScrollIdle = false
+        interruptProgrammaticZoom(notifyIdle: false)
         onInteractionChanged(.panning)
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         guard !decelerate, !isApplyingGeometry else { return }
+        if didBeginCustomDrag || suppressNextScrollIdle {
+            suppressNextScrollIdle = false
+            return
+        }
         onInteractionChanged(.idle)
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         guard !isApplyingGeometry else { return }
+        if suppressNextScrollIdle {
+            suppressNextScrollIdle = false
+            return
+        }
         onInteractionChanged(.idle)
     }
 
@@ -193,23 +209,28 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
 
     @objc private func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
         guard imageView.image != nil else { return }
-        onInteractionChanged(.zooming)
-        defer { onInteractionChanged(.idle) }
+        performDoubleTap(at: recognizer.location(in: imageView))
+    }
+
+    func performDoubleTap(at center: CGPoint) {
+        guard imageView.image != nil else { return }
         if zoomScale > minimumZoomScale + 0.01 {
-            resetToFit(animated: !reduceMotion)
+            performProgrammaticZoom { view in
+                view.setZoomScale(view.minimumZoomScale, animated: false)
+                view.centerContent()
+            }
             return
         }
         let targetScale = min(maximumZoomScale, 2.5)
-        let center = recognizer.location(in: imageView)
-        zoom(
-            to: ZoomGeometry.zoomRect(
+        let rect = ZoomGeometry.zoomRect(
                 scale: targetScale,
                 center: center,
                 viewportSize: bounds.size,
                 maximumScale: maximumZoomScale
-            ),
-            animated: !reduceMotion
-        )
+            )
+        performProgrammaticZoom { view in
+            view.zoom(to: rect, animated: false)
+        }
     }
 
     @objc private func handleSingleTap(_ recognizer: UITapGestureRecognizer) {
@@ -253,25 +274,24 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
 
     @objc private func performAccessibilityZoomIn() -> Bool {
         guard imageView.image != nil else { return false }
-        onInteractionChanged(.zooming)
-        defer { onInteractionChanged(.idle) }
         let targetScale = min(maximumZoomScale, max(zoomScale * 2, 2))
-        zoom(
-            to: ZoomGeometry.zoomRect(
+        let rect = ZoomGeometry.zoomRect(
                 scale: targetScale,
                 center: CGPoint(x: imageView.bounds.midX, y: imageView.bounds.midY),
                 viewportSize: bounds.size,
                 maximumScale: maximumZoomScale
-            ),
-            animated: !reduceMotion
-        )
+            )
+        performProgrammaticZoom { view in
+            view.zoom(to: rect, animated: false)
+        }
         return true
     }
 
     @objc private func performAccessibilityFit() -> Bool {
-        onInteractionChanged(.zooming)
-        defer { onInteractionChanged(.idle) }
-        resetToFit(animated: !reduceMotion)
+        performProgrammaticZoom { view in
+            view.setZoomScale(view.minimumZoomScale, animated: false)
+            view.centerContent()
+        }
         return true
     }
 
@@ -301,6 +321,7 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
 
         interactionPan.delegate = self
         interactionPan.cancelsTouchesInView = false
+        interactionPan.maximumNumberOfTouches = 1
         addGestureRecognizer(interactionPan)
 
         isAccessibilityElement = true
@@ -382,6 +403,7 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
             value = max(translation.y, 0)
             projectedVelocity = velocity.y
         }
+        suppressNextScrollIdle = true
         onDrag(
             ViewerDragEvent(
                 axis: lockedAxis,
@@ -390,7 +412,55 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
                 velocity: projectedVelocity
             )
         )
-        onInteractionChanged(.idle)
+    }
+
+    func finishProgrammaticZoomImmediatelyForTesting() {
+        guard let animator = programmaticZoomAnimator else { return }
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .end)
+    }
+
+    private func performProgrammaticZoom(
+        changes: @escaping @MainActor (ZoomingImageScrollView) -> Void
+    ) {
+        interruptProgrammaticZoom(notifyIdle: false)
+        onInteractionChanged(.zooming)
+        if reduceMotion {
+            changes(self)
+            centerContent()
+            onZoomScaleChanged(zoomScale)
+            updateAccessibilityZoomValue()
+            onInteractionChanged(.idle)
+            return
+        }
+
+        let token = UUID()
+        programmaticZoomToken = token
+        let animator = UIViewPropertyAnimator(duration: 0.28, dampingRatio: 1) { [weak self] in
+            guard let self else { return }
+            changes(self)
+            self.layoutIfNeeded()
+        }
+        programmaticZoomAnimator = animator
+        animator.addCompletion { [weak self] _ in
+            guard let self, self.programmaticZoomToken == token else { return }
+            self.programmaticZoomToken = nil
+            self.programmaticZoomAnimator = nil
+            self.centerContent()
+            self.onZoomScaleChanged(self.zoomScale)
+            self.updateAccessibilityZoomValue()
+            self.onInteractionChanged(.idle)
+        }
+        animator.startAnimation()
+    }
+
+    private func interruptProgrammaticZoom(notifyIdle: Bool) {
+        guard let animator = programmaticZoomAnimator else { return }
+        programmaticZoomToken = nil
+        programmaticZoomAnimator = nil
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .current)
+        if notifyIdle { onInteractionChanged(.idle) }
     }
 
     private func captureSnapshot(viewportSize: CGSize) -> ZoomViewportSnapshot {
