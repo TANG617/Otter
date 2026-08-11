@@ -1,4 +1,5 @@
 // Copy to Config/Local.xcconfig only for local, non-committed overrides.
 // Never place an Immich API key in an xcconfig, scheme, or source file.
+// Find your Team ID in the Apple Developer account membership page.
+OTTER_DEVELOPMENT_TEAM = YOUR_TEAM_ID
 // PRODUCT_BUNDLE_IDENTIFIER = com.example.otter
-

@@ -100,6 +100,10 @@ struct RatingUpdateBody: Encodable {
     }
 }
 
+struct FavoriteUpdateBody: Encodable {
+    let isFavorite: Bool
+}
+
 enum ImmichJSON {
     static func decoder() -> JSONDecoder {
         let decoder = JSONDecoder()

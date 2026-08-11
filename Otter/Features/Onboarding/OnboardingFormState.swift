@@ -16,6 +16,8 @@ enum ConnectionValidationFailure: Equatable, Sendable {
     case incompatibleServer
     case insufficientPermissions
     case transportSecurity
+    case credentialStorage
+    case localStorage
     case unknown
 
     var presentation: PresentationFailure {
@@ -50,6 +52,18 @@ enum ConnectionValidationFailure: Equatable, Sendable {
                 message: "Use trusted HTTPS, or a local-network HTTP server allowed by iOS.",
                 systemImage: "lock.slash"
             )
+        case .credentialStorage:
+            PresentationFailure(
+                title: "Couldn’t Secure Account",
+                message: "Otter couldn’t save the API key in the device Keychain. Check the app signing and try again.",
+                systemImage: "key.slash"
+            )
+        case .localStorage:
+            PresentationFailure(
+                title: "Couldn’t Open Library",
+                message: "Otter couldn’t prepare its local database or media cache. Try again after restarting the app.",
+                systemImage: "externaldrive.badge.exclamationmark"
+            )
         case .unknown:
             PresentationFailure(
                 title: "Connection Failed",
@@ -64,9 +78,15 @@ enum ConnectionValidationResult: Equatable, Sendable {
     case failed(ConnectionValidationFailure)
 }
 
+enum ConnectionActivationResult: Equatable, Sendable {
+    case activated
+    case failed(ConnectionValidationFailure)
+}
+
 enum OnboardingConnectionState: Equatable, Sendable {
     case idle
     case validating
+    case activating(ConnectedServerSummary)
     case connected(ConnectedServerSummary)
     case failed(ConnectionValidationFailure)
 }
@@ -109,6 +129,26 @@ struct OnboardingFormState: Equatable, Sendable {
         self.validationRevision = validationRevision
     }
 
+    static func testDefaults(environment: [String: String]) -> OnboardingFormState {
+#if DEBUG
+        guard let serverURL = environment["OTTER_TEST_SERVER_URL"],
+              let apiKey = environment["OTTER_TEST_API_KEY"] else {
+            return OnboardingFormState()
+        }
+
+        let candidate = OnboardingFormState(
+            serverURLText: serverURL.trimmingCharacters(in: .whitespacesAndNewlines),
+            apiKeyText: apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        guard candidate.serverURLIssue == nil, candidate.apiKeyIssue == nil else {
+            return OnboardingFormState()
+        }
+        return candidate
+#else
+        return OnboardingFormState()
+#endif
+    }
+
     var normalizedServerURL: URL? {
         ServerURLNormalizer.normalizedURL(from: serverURLText)
     }
@@ -138,7 +178,10 @@ struct OnboardingFormState: Equatable, Sendable {
     }
 
     var canValidateConnection: Bool {
-        serverURLIssue == nil && apiKeyIssue == nil && connectionState != .validating
+        serverURLIssue == nil
+            && apiKeyIssue == nil
+            && connectionState != .validating
+            && !connectionState.isActivating
     }
 
     var connectRequest: OnboardingConnectRequest? {
@@ -173,6 +216,25 @@ struct OnboardingFormState: Equatable, Sendable {
 
         switch result {
         case let .connected(summary):
+            connectionState = .activating(summary)
+        case let .failed(failure):
+            connectionState = .failed(failure)
+        }
+        return true
+    }
+
+    @discardableResult
+    mutating func completeActivation(
+        _ result: ConnectionActivationResult,
+        revision: UInt64
+    ) -> Bool {
+        guard validationRevision == revision,
+              case let .activating(summary) = connectionState else {
+            return false
+        }
+
+        switch result {
+        case .activated:
             connectionState = .connected(summary)
         case let .failed(failure):
             connectionState = .failed(failure)
@@ -183,6 +245,13 @@ struct OnboardingFormState: Equatable, Sendable {
     private mutating func invalidateValidation() {
         validationRevision &+= 1
         connectionState = .idle
+    }
+}
+
+private extension OnboardingConnectionState {
+    var isActivating: Bool {
+        if case .activating = self { return true }
+        return false
     }
 }
 

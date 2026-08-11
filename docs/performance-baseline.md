@@ -25,6 +25,19 @@ Ignored local artifact:
 .codex-artifacts/performance/ettrace-run/run-20260810-scroll100k/output_259.json
 ```
 
+## Structural timeline regression baseline
+
+Captured on 11 August 2026 with deterministic operation counters rather than wall-clock assertions:
+
+| Scenario | Incremental operations | Full section rebuild delta | Fallback rebuilds |
+|---|---:|---:|---:|
+| One metadata update in a 10,000-asset window, repeated for Years/Months/All | 3 metadata patches | 0 | 0 |
+| 10,000 assets loaded as 100 ordered pages | 99 page appends | 0 after initial window | 0 |
+| Deliberately out-of-order page | 0 normal appends | 1 | 1 |
+| Capture-date movement | 0 metadata patches | 1 | n/a |
+
+These counters guard the algorithmic path: rating/Favourite updates do not rebuild the loaded library or advance `windowRevision`, and normal pagination processes only incoming assets plus the trailing section. They do not replace device profiling.
+
 ## Viewer release memgraph
 
 Flow: after the same timeline scroll, open one Viewer item, allow its media to settle, close Viewer, wait one second, then capture the running process.
@@ -50,6 +63,7 @@ Ignored local artifacts:
 
 - Metadata is paged and reconciled through GRDB; the UI does not materialize a 100k library at launch.
 - Timeline insertion and grouping are incremental instead of repeatedly sorting the full loaded library.
+- Viewer filmstrip requests use only Current timeline thumbnails, a 128–192 pixel demand, lazy cell cancellation, and at most eight proactive neighbor/prefetch requests.
 - Media byte work is coalesced; render cache identity includes account, variant, revision, purpose, and pixel bucket.
 - Interactive requests suppress queued speculative work; per-lane concurrency is bounded and queued work is cancellable.
 - Missing or corrupt derivatives fall through to the next legal representation.

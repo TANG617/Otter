@@ -5,6 +5,32 @@ import Testing
 @MainActor
 @Suite("Viewer presentation state")
 struct ViewerPresentationStateTests {
+    @Test("Motion policy preserves springs normally and cross-fades for Reduced Motion")
+    func motionPolicy() {
+        let standard = ViewerMotionPolicy(reduceMotion: false)
+        #expect(standard.transition(momentumDriven: false) == .spring(.standard))
+        #expect(standard.transition(momentumDriven: true) == .spring(.momentum))
+        #expect(standard.dismissalScale(progress: 1) == 0.9)
+
+        let reduced = ViewerMotionPolicy(reduceMotion: true)
+        #expect(reduced.transition(momentumDriven: true) == .crossFade(duration: 0.18))
+        #expect(reduced.dismissalScale(progress: 1) == 1)
+    }
+
+    @Test("A reversed gesture resumes from the current presentation value")
+    func reverseInterruption() {
+        var translation = ViewerInteractiveTranslation()
+        translation.begin(from: -180)
+        translation.update(gestureTranslation: 35)
+        #expect(translation.value == -145)
+
+        translation.begin(from: translation.value)
+        translation.update(gestureTranslation: 90)
+        #expect(translation.value == -55)
+        translation.settle(at: 0)
+        #expect(translation.value == 0)
+    }
+
     @Test("Initial selection and rating are explicit")
     func initialSelectionAndRating() {
         let items = viewerTestItems(count: 3)
@@ -18,11 +44,15 @@ struct ViewerPresentationStateTests {
         #expect(state.currentItem?.id == items[1].id)
         #expect(state.selectedVariant == .current)
         #expect(state.rating(for: items[0].id) == .four)
+        #expect(state.isFavorite(items[0].id))
+        #expect(!state.isFavorite(items[1].id))
 
         state.setRating(.rejected, for: items[1].id)
         #expect(state.rating(for: items[1].id) == .rejected)
         state.setRating(nil, for: items[1].id)
         #expect(state.rating(for: items[1].id) == nil)
+        state.setFavorite(true, for: items[1].id)
+        #expect(state.isFavorite(items[1].id))
     }
 
     @Test("Live request window is bounded to current and adjacent items")
@@ -106,6 +136,54 @@ struct ViewerPresentationStateTests {
 
         state.setInteractionState(.idle)
         #expect(state.currentFrame?.quality == .fullsize)
+        state.stop()
+    }
+
+    @Test("Paging keeps a high-resolution replacement staged until settlement")
+    func pagingStagesHighResolutionUntilCompletion() async {
+        let items = viewerTestItems(count: 2)
+        let pipeline = ViewerTestPipeline()
+        let state = ViewerPresentationState(items: items, pipeline: pipeline)
+        state.updateViewport(size: CGSize(width: 390, height: 844), displayScale: 3)
+        state.start()
+        pipeline.yield(viewerTestFrame(quality: .preview), assetID: items[0].id, variant: .current)
+        await settleViewerTasks()
+
+        state.setInteractionState(.paging)
+        pipeline.yield(viewerTestFrame(quality: .fullsize), assetID: items[0].id, variant: .current)
+        await settleViewerTasks()
+        #expect(state.currentFrame?.quality == .preview)
+
+        state.setInteractionState(.idle)
+        #expect(state.currentFrame?.quality == .fullsize)
+        state.stop()
+    }
+
+    @Test("A stale equal request cannot finish a newer viewport request")
+    func requestABARace() async {
+        let item = viewerTestItems(count: 1)[0]
+        let pipeline = ViewerTestPipeline()
+        let state = ViewerPresentationState(items: [item], pipeline: pipeline)
+        let originalSize = CGSize(width: 390, height: 844)
+
+        state.updateViewport(size: originalSize, displayScale: 3)
+        state.start()
+        state.updateViewport(size: CGSize(width: 390, height: 760), displayScale: 3)
+        state.updateViewport(size: originalSize, displayScale: 3)
+        await settleViewerTasks()
+
+        #expect(state.currentErrorMessage == nil)
+        #expect(state.activeRequests.count == 1)
+
+        pipeline.yield(
+            viewerTestFrame(quality: .fullsize, isFinal: true),
+            assetID: item.id,
+            variant: .current
+        )
+        await settleViewerTasks()
+
+        #expect(state.currentFrame?.quality == .fullsize)
+        #expect(state.currentErrorMessage == nil)
         state.stop()
     }
 

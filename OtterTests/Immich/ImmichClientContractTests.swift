@@ -132,6 +132,20 @@ struct ImmichClientContractTests {
         #expect(String(data: request.httpBody!, encoding: .utf8) == #"{"rating":null}"#)
     }
 
+    @Test("Favourite writes use the public asset update endpoint")
+    func favoriteWrite() async throws {
+        let transport = StubImmichTransport([.init()])
+        let client = try makeClient(transport: transport)
+        let assetID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+
+        try await client.writeFavorite(true, assetID: assetID, accountNamespace: account)
+
+        let request = try #require(await transport.requests().first)
+        #expect(request.httpMethod == "PUT")
+        #expect(request.url?.path == "/api/assets/\(assetID.uuidString.lowercased())")
+        #expect(String(data: request.httpBody!, encoding: .utf8) == #"{"isFavorite":true}"#)
+    }
+
     @Test("HTTP status is mapped without response bodies or credentials")
     func errorMapping() async throws {
         let cases: [(Int, [String: String], ImmichClientError)] = [

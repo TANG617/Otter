@@ -8,6 +8,7 @@ final class AppEnvironment {
     let usesFixtures: Bool
     let fixtureRatingWritesFail: Bool
     let fixtureCurrentExportAvailable: Bool
+    let onboardingInitialState: OnboardingFormState
     private(set) var liveRuntime: LiveAppRuntime?
     private(set) var fixtureRuntime: FixtureAppRuntime?
 
@@ -15,7 +16,6 @@ final class AppEnvironment {
     private let keyStore: any APIKeyStoring
     private let fileManager: FileManager
     private var pendingConnection: PendingConnection?
-    private var activationTask: Task<Void, Never>?
     private var authenticationTask: Task<Void, Never>?
 
     init(
@@ -25,6 +25,7 @@ final class AppEnvironment {
         fixtureRuntime: FixtureAppRuntime? = nil,
         fixtureRatingWritesFail: Bool = false,
         fixtureCurrentExportAvailable: Bool = true,
+        onboardingInitialState: OnboardingFormState = OnboardingFormState(),
         accountStore: any ActiveAccountStoring = UserDefaultsActiveAccountStore(),
         keyStore: any APIKeyStoring = KeychainAPIKeyStore(),
         fileManager: FileManager = .default
@@ -33,6 +34,7 @@ final class AppEnvironment {
         self.usesFixtures = usesFixtures
         self.fixtureRatingWritesFail = fixtureRatingWritesFail
         self.fixtureCurrentExportAvailable = fixtureCurrentExportAvailable
+        self.onboardingInitialState = onboardingInitialState
         self.liveRuntime = liveRuntime
         self.fixtureRuntime = fixtureRuntime
         self.accountStore = accountStore
@@ -62,6 +64,17 @@ final class AppEnvironment {
             )
         }
 
+        let onboardingInitialState = OnboardingFormState.testDefaults(environment: environment)
+#if DEBUG
+        if environment["OTTER_FORCE_SIGNED_OUT"] == "YES" {
+            return AppEnvironment(
+                session: AppSession(initialState: .signedOut),
+                usesFixtures: false,
+                onboardingInitialState: onboardingInitialState
+            )
+        }
+#endif
+
         let accountStore = UserDefaultsActiveAccountStore()
         let keyStore = KeychainAPIKeyStore()
         do {
@@ -70,6 +83,7 @@ final class AppEnvironment {
                 return AppEnvironment(
                     session: AppSession(initialState: .signedOut),
                     usesFixtures: false,
+                    onboardingInitialState: onboardingInitialState,
                     accountStore: accountStore,
                     keyStore: keyStore
                 )
@@ -79,6 +93,7 @@ final class AppEnvironment {
                 session: AppSession(initialState: .active(accountNamespace: record.namespace)),
                 usesFixtures: false,
                 liveRuntime: runtime,
+                onboardingInitialState: onboardingInitialState,
                 accountStore: accountStore,
                 keyStore: keyStore
             )
@@ -88,6 +103,7 @@ final class AppEnvironment {
             return AppEnvironment(
                 session: AppSession(initialState: .authenticationInvalid),
                 usesFixtures: false,
+                onboardingInitialState: onboardingInitialState,
                 accountStore: accountStore,
                 keyStore: keyStore
             )
@@ -137,15 +153,13 @@ final class AppEnvironment {
 
     func completeConnection(
         request: OnboardingConnectRequest,
-        summary: ConnectedServerSummary
-    ) {
+        summary _: ConnectedServerSummary
+    ) async -> ConnectionActivationResult {
         guard let pendingConnection, pendingConnection.request == request else {
             session.transition(to: .signedOut)
-            return
+            return .failed(.unknown)
         }
         self.pendingConnection = nil
-        activationTask?.cancel()
-        session.transition(to: .connecting)
 
         let accountStore = self.accountStore
         let keyStore = self.keyStore
@@ -161,41 +175,53 @@ final class AppEnvironment {
             cacheLimitBytes: existing?.cacheLimitBytes ?? SettingsCacheLimit.gibibytes2.rawValue
         )
         let apiKey = pendingConnection.apiKey
+        var runtime: LiveAppRuntime?
 
-        activationTask = Task {
+        do {
+            let newRuntime = try LiveAppRuntimeFactory.make(
+                record: record,
+                apiKey: apiKey,
+                fileManager: fileManager
+            )
+            runtime = newRuntime
+            try Task.checkCancellation()
+            try keyStore.save(apiKey, accountNamespace: namespace)
             do {
-                let runtime = try LiveAppRuntimeFactory.make(
-                    record: record,
-                    apiKey: apiKey,
-                    fileManager: fileManager
-                )
-                try keyStore.save(apiKey, accountNamespace: namespace)
-                do {
-                    try accountStore.save(record)
-                    if let existing, existing.namespace != namespace {
-                        try keyStore.remove(accountNamespace: existing.namespace)
-                    }
-                } catch {
-                    try? keyStore.remove(accountNamespace: namespace)
-                    if let existing {
-                        try? accountStore.save(existing)
-                    } else {
-                        try? accountStore.remove()
-                    }
-                    throw error
-                }
-                guard !Task.isCancelled else { return }
+                try accountStore.save(record)
                 if let existing, existing.namespace != namespace {
-                    try? runtime.database.deleteAccount(namespace: existing.namespace)
-                    try? await runtime.diskCache.clear(accountNamespace: existing.namespace)
+                    try keyStore.remove(accountNamespace: existing.namespace)
                 }
-                liveRuntime = runtime
-                observeAuthenticationInvalidations(from: runtime)
-                session.transition(to: .active(accountNamespace: namespace))
             } catch {
-                liveRuntime = nil
-                session.transition(to: .signedOut)
+                try? keyStore.remove(accountNamespace: namespace)
+                if let existing {
+                    try? accountStore.save(existing)
+                } else {
+                    try? accountStore.remove()
+                }
+                throw error
             }
+            if let existing, existing.namespace != namespace {
+                try? newRuntime.database.deleteAccount(namespace: existing.namespace)
+                try? await newRuntime.diskCache.clear(accountNamespace: existing.namespace)
+            }
+            liveRuntime = newRuntime
+            observeAuthenticationInvalidations(from: newRuntime)
+            session.transition(to: .active(accountNamespace: namespace))
+            return .activated
+        } catch {
+            try? keyStore.remove(accountNamespace: namespace)
+            if let existing {
+                try? accountStore.save(existing)
+            } else {
+                try? accountStore.remove()
+            }
+            if let runtime {
+                try? runtime.database.deleteAccount(namespace: namespace)
+                try? await runtime.diskCache.clear(accountNamespace: namespace)
+            }
+            liveRuntime = nil
+            session.transition(to: .signedOut)
+            return .failed(Self.activationFailure(for: error))
         }
     }
 
@@ -222,8 +248,6 @@ final class AppEnvironment {
     }
 
     func signOut() async -> ActionOutcome {
-        activationTask?.cancel()
-        activationTask = nil
         authenticationTask?.cancel()
         authenticationTask = nil
         let runtime = liveRuntime
@@ -365,6 +389,11 @@ final class AppEnvironment {
         case .crossOriginResponse: .transportSecurity
         case .notFound, .wrongAccount: .unknown
         }
+    }
+
+    private static func activationFailure(for error: any Error) -> ConnectionValidationFailure {
+        if error is APIKeyStoreError { return .credentialStorage }
+        return .localStorage
     }
 
     private static func capabilityText(_ capability: CapabilityAvailability) -> String {

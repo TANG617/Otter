@@ -30,6 +30,40 @@ actor LocalFirstAssetStore: AssetStore {
     }
 
     func refresh(accountNamespace: UUID, mode: AssetRefreshMode) async throws -> AssetRefreshResult {
+        try await performRefresh(accountNamespace: accountNamespace, mode: mode)
+    }
+
+    nonisolated func refreshEvents(
+        accountNamespace: UUID,
+        mode: AssetRefreshMode
+    ) -> AssetRefreshEventStream {
+        AssetRefreshEventStream(bufferingPolicy: .bufferingNewest(2)) { continuation in
+            let task = Task {
+                do {
+                    let result = try await self.performRefresh(
+                        accountNamespace: accountNamespace,
+                        mode: mode
+                    ) { progress in
+                        continuation.yield(.progress(progress))
+                    }
+                    try Task.checkCancellation()
+                    continuation.yield(.completed(result))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
+            }
+        }
+    }
+
+    private func performRefresh(
+        accountNamespace: UUID,
+        mode: AssetRefreshMode,
+        onProgress: (@Sendable (AssetRefreshProgress) -> Void)? = nil
+    ) async throws -> AssetRefreshResult {
         let state = try database.syncState(accountNamespace: accountNamespace)
         let refreshDate = now()
         let updatedAfter: Date?
@@ -56,6 +90,16 @@ actor LocalFirstAssetStore: AssetStore {
         var seenAssets: [UUID: Date] = [:]
         var receivedCount = 0
         var highest: Date?
+        var pageIndex = 0
+
+        onProgress?(
+            AssetRefreshProgress(
+                stage: .connecting,
+                processedCount: 0,
+                storedCount: 0,
+                totalCount: nil
+            )
+        )
 
         repeat {
             let page = try await remote.searchAssets(
@@ -89,6 +133,15 @@ actor LocalFirstAssetStore: AssetStore {
                     reconciliationGeneration: generation
                 )
             }
+            onProgress?(
+                AssetRefreshProgress(
+                    stage: pageIndex == 0 ? .showingLatest : .organizing,
+                    processedCount: receivedCount,
+                    storedCount: seenAssets.count,
+                    totalCount: nil
+                )
+            )
+            pageIndex += 1
             if let next = page.nextContinuation {
                 guard observedContinuations.insert(next).inserted else {
                     throw AssetStoreError.paginationCycle
@@ -114,11 +167,20 @@ actor LocalFirstAssetStore: AssetStore {
             reconciliationAt: isReconciliation ? completedAt : nil,
             highestObservedUpdatedAt: highest
         )
-        return AssetRefreshResult(
+        let result = AssetRefreshResult(
             receivedCount: receivedCount,
             storedCount: seenAssets.count,
             deletedCount: deletedCount,
             highestObservedUpdatedAt: highest
         )
+        onProgress?(
+            AssetRefreshProgress(
+                stage: .completed,
+                processedCount: result.receivedCount,
+                storedCount: result.storedCount,
+                totalCount: result.receivedCount
+            )
+        )
+        return result
     }
 }

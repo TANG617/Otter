@@ -125,7 +125,8 @@ func viewerTestItems(count: Int) -> [ViewerItem] {
                 originalMimeType: "image/jpeg"
             ),
             accessibilityLabel: "Photo \(index + 1)",
-            rating: index == 0 ? .four : nil
+            rating: index == 0 ? .four : nil,
+            isFavorite: index == 0
         )
     }
 }

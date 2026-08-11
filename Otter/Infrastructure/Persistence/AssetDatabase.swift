@@ -274,6 +274,19 @@ final class AssetDatabase: @unchecked Sendable {
         }
     }
 
+    func updateFavorite(
+        _ isFavorite: Bool,
+        assetID: UUID,
+        accountNamespace: UUID
+    ) throws {
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE assets SET isFavorite = ? WHERE accountNamespace = ? AND id = ?",
+                arguments: [isFavorite, Self.id(accountNamespace), Self.id(assetID)]
+            )
+        }
+    }
+
     func beginReconciliation(accountNamespace: UUID) throws -> Int64 {
         try database.write { db in
             try db.execute(

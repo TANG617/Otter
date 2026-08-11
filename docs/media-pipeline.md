@@ -1189,9 +1189,9 @@ Exit criterion: aggressive scrolling is stable on target devices.
 
 Implement separately through `AssetExporter`:
 
-- choose Current or Original;
-- Save to Photos;
-- Save to Files;
+- use the Current or Original selection already visible in Viewer;
+- save directly to Photos with add-only authorization;
+- never substitute the other rendition;
 - progress/error state.
 
 ### Later
@@ -1209,7 +1209,7 @@ Implement separately through `AssetExporter`:
 1. Timeline MUST NOT automatically download Original.
 2. Image decoding MUST NOT happen on the main thread.
 3. Remote byte identity and decoded render identity MUST be separate.
-4. Metadata-only rating changes MUST NOT invalidate photo pixels.
+4. Metadata-only rating or Favourite changes MUST NOT invalidate photo pixels.
 5. Prefetch MUST support cancellation, promotion, and request sharing.
 6. Large media MUST remain file-backed until a bounded decode is requested.
 7. Cells MUST NOT create an unbounded set of independent network/decode tasks.

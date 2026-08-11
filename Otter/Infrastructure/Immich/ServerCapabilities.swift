@@ -34,6 +34,7 @@ struct SemanticVersion: Codable, Hashable, Sendable, Comparable, CustomStringCon
 enum CapabilityUnavailableReason: Equatable, Sendable {
     case apiKeyAuthenticationUnsupported
     case serverVersionReadOnly
+    case renditionUnsupported
 }
 
 enum CapabilityAvailability: Equatable, Sendable {
@@ -44,6 +45,7 @@ enum CapabilityAvailability: Equatable, Sendable {
 
 struct ServerCapabilities: Equatable, Sendable {
     let metadataSearch: CapabilityAvailability
+    let currentDownload: CapabilityAvailability
     let originalDownload: CapabilityAvailability
     let ratingWrite: CapabilityAvailability
     let syncStream: CapabilityAvailability
@@ -59,6 +61,7 @@ enum ImmichCapabilityProbe {
         if version.major < 3 {
             return ServerCapabilities(
                 metadataSearch: .unverified,
+                currentDownload: .unverified,
                 originalDownload: .unverified,
                 ratingWrite: .unavailable(.serverVersionReadOnly),
                 syncStream: .unavailable(.apiKeyAuthenticationUnsupported)
@@ -66,6 +69,7 @@ enum ImmichCapabilityProbe {
         }
         return ServerCapabilities(
             metadataSearch: version.major == 3 ? .available : .unverified,
+            currentDownload: version.major == 3 ? .available : .unverified,
             originalDownload: .unverified,
             ratingWrite: .unverified,
             syncStream: .unavailable(.apiKeyAuthenticationUnsupported)

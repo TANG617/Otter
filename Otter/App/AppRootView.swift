@@ -5,24 +5,26 @@ import UIKit
 struct AppRootView: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(AppSession.self) private var session
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var viewer: ViewerPresentation?
+    @State private var viewerReturnAssetID: UUID?
     @State private var sheet: RootSheet?
     @State private var latestAssetUpdate: TimelineAsset?
+    @Namespace private var viewerTransition
 
     var body: some View {
         rootContent
-            .fullScreenCover(item: $viewer) { presentation in
-                viewerHost(presentation)
-            }
-            .sheet(isPresented: isSheetPresented) {
-                if let destination = sheet {
-                    sheetContent(destination)
-                }
+            .accessibilityHidden(sheet != nil)
+            .allowsHitTesting(sheet == nil)
+            .sheet(item: $sheet) { destination in
+                sheetContent(destination)
+                    .accessibilityAddTraits(.isModal)
             }
             .onChange(of: session.state) { _, state in
                 if state == .signedOut || state == .authenticationInvalid {
                     viewer = nil
+                    viewerReturnAssetID = nil
                     sheet = nil
                 }
             }
@@ -33,11 +35,12 @@ struct AppRootView: View {
         switch session.state {
         case .signedOut, .authenticationInvalid:
             OnboardingView(
+                initialState: environment.onboardingInitialState,
                 validateConnection: { request in
                     await environment.validateConnection(request)
                 },
                 onConnected: { request, summary in
-                    environment.completeConnection(request: request, summary: summary)
+                    await environment.completeConnection(request: request, summary: summary)
                 }
             )
 
@@ -92,6 +95,7 @@ struct AppRootView: View {
                 accountNamespace: accountNamespace,
                 assetStore: assetStore,
                 mediaPipeline: mediaPipeline,
+                transitionNamespace: viewerTransition,
                 updatedAsset: latestAssetUpdate,
                 onSelectAsset: { asset, frame, window in
                     presentViewer(
@@ -102,6 +106,26 @@ struct AppRootView: View {
                 },
                 onOpenSettings: openSettings
             )
+            .navigationDestination(item: $viewer) { presentation in
+                presentedViewer(presentation)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func presentedViewer(_ presentation: ViewerPresentation) -> some View {
+        if reduceMotion {
+            viewerHost(presentation)
+                .accessibilityAddTraits(.isModal)
+        } else {
+            viewerHost(presentation)
+                .navigationTransition(
+                    .zoom(
+                        sourceID: viewerReturnAssetID ?? presentation.selectedAssetID,
+                        in: viewerTransition
+                    )
+                )
+                .accessibilityAddTraits(.isModal)
         }
     }
 
@@ -112,7 +136,8 @@ struct AppRootView: View {
                 presentation: presentation,
                 pipeline: runtime.mediaPipeline,
                 exporter: runtime.exporter,
-                currentExportAvailable: runtime.account.serverVersion?.hasPrefix("3.") == true,
+                photosExporter: PhotosExporter(),
+                exportAvailability: runtime.exportAvailability,
                 onRate: { item, rating in
                     do {
                         let result = try await runtime.ratingRepository.setRating(
@@ -126,18 +151,34 @@ struct AppRootView: View {
                         return .failed
                     }
                 },
-                onSettings: {
-                    viewer = nil
-                    openSettings()
+                onFavorite: { item, isFavorite in
+                    do {
+                        let result = try await runtime.ratingRepository.setFavorite(
+                            isFavorite,
+                            assetID: item.id,
+                            accountNamespace: item.descriptor.accountNamespace
+                        )
+                        latestAssetUpdate = result.asset
+                        return .verified(result.asset.isFavorite)
+                    } catch {
+                        return .failed
+                    }
                 },
-                onDismiss: { viewer = nil }
+                onCurrentItemChanged: { viewerReturnAssetID = $0 },
+                onDismiss: dismissViewer
             )
         } else if let runtime = environment.fixtureRuntime {
             ViewerHostView(
                 presentation: presentation,
                 pipeline: runtime.mediaPipeline,
                 exporter: runtime.exporter,
-                currentExportAvailable: environment.fixtureCurrentExportAvailable,
+                photosExporter: FixturePhotosExporter(),
+                exportAvailability: AssetExportAvailability(
+                    current: environment.fixtureCurrentExportAvailable
+                        ? .available
+                        : .unavailable(.renditionUnsupported),
+                    original: .available
+                ),
                 onRate: { item, rating in
                     if environment.fixtureRatingWritesFail { return .failed }
                     guard let verified = await runtime.assetStore.setRating(rating, assetID: item.id) else {
@@ -146,11 +187,16 @@ struct AppRootView: View {
                     latestAssetUpdate = verified
                     return .verified(verified.rating)
                 },
-                onSettings: {
-                    viewer = nil
-                    openSettings()
+                onFavorite: { item, isFavorite in
+                    if environment.fixtureRatingWritesFail { return .failed }
+                    guard let verified = await runtime.assetStore.setFavorite(isFavorite, assetID: item.id) else {
+                        return .failed
+                    }
+                    latestAssetUpdate = verified
+                    return .verified(verified.isFavorite)
                 },
-                onDismiss: { viewer = nil }
+                onCurrentItemChanged: { viewerReturnAssetID = $0 },
+                onDismiss: dismissViewer
             )
         }
     }
@@ -182,6 +228,7 @@ struct AppRootView: View {
     ) {
         let source = window.assets.contains(where: { $0.id == selected.id }) ? window.assets : [selected]
         let items = source.map(Self.viewerItem(for:))
+        viewerReturnAssetID = selected.id
         viewer = ViewerPresentation(
             selectedAssetID: selected.id,
             items: items,
@@ -196,7 +243,9 @@ struct AppRootView: View {
         ViewerItem(
             descriptor: TimelineMediaDemand.descriptor(for: asset),
             accessibilityLabel: TimelineAccessibilityLabel.asset(asset),
-            rating: asset.rating
+            rating: asset.rating,
+            isFavorite: asset.isFavorite,
+            captureDate: asset.timelineDate
         )
     }
 
@@ -208,23 +257,27 @@ struct AppRootView: View {
         }
     }
 
-    private var isSheetPresented: Binding<Bool> {
-        Binding(
-            get: { sheet != nil },
-            set: { presented in
-                if !presented { sheet = nil }
-            }
-        )
+    private func dismissViewer() {
+        viewer = nil
     }
+
 }
 
-private struct ViewerPresentation: Identifiable {
+private struct ViewerPresentation: Identifiable, Hashable {
     let selectedAssetID: UUID
     let items: [ViewerItem]
     let initialFrame: MediaFrame?
     let loadMoreItems: @MainActor @Sendable () async -> [ViewerItem]
 
     var id: UUID { selectedAssetID }
+
+    static func == (lhs: ViewerPresentation, rhs: ViewerPresentation) -> Bool {
+        lhs.selectedAssetID == rhs.selectedAssetID
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(selectedAssetID)
+    }
 }
 
 private enum RootSheet: Identifiable {
@@ -238,15 +291,16 @@ private enum RootSheet: Identifiable {
 @MainActor
 private struct ViewerHostView: View {
     typealias Rate = @MainActor @Sendable (ViewerItem, AssetRating?) async -> ViewerRatingMutationOutcome
-
-    @State private var export: ViewerExportPresentation?
+    typealias Favorite = @MainActor @Sendable (ViewerItem, Bool) async -> ViewerFavoriteMutationOutcome
 
     let presentation: ViewerPresentation
     let pipeline: any MediaPipelineProtocol
     let exporter: any AssetExporting
-    let currentExportAvailable: Bool
+    let photosExporter: any PhotosExporting
+    let exportAvailability: AssetExportAvailability
     let onRate: Rate
-    let onSettings: @MainActor @Sendable () -> Void
+    let onFavorite: Favorite
+    let onCurrentItemChanged: @MainActor @Sendable (UUID) -> Void
     let onDismiss: @MainActor @Sendable () -> Void
 
     var body: some View {
@@ -259,26 +313,44 @@ private struct ViewerHostView: View {
             actions: ViewerActions(
                 onDismiss: onDismiss,
                 onRate: onRate,
-                onExport: { item, variant in
-                    export = ViewerExportPresentation(item: item, variant: variant)
-                },
-                onSettings: onSettings
+                onFavorite: onFavorite,
+                onDownload: download,
+                onCurrentItemChanged: onCurrentItemChanged
             )
         )
-        .sheet(item: $export) { request in
-            ExportOptionsView(
-                asset: request.item.descriptor,
-                initialVariant: request.variant == .current ? .current : .original,
-                currentAvailable: currentExportAvailable,
-                exporter: exporter
+    }
+
+    private func download(_ item: ViewerItem, _ variant: AssetVariant) async -> ActionOutcome {
+        let exportVariant: ExportVariant = variant == .current ? .current : .original
+        do {
+            try await DirectPhotosDownload(
+                availability: exportAvailability,
+                exporter: exporter,
+                photosExporter: photosExporter
+            ).save(asset: item.descriptor, variant: exportVariant)
+            return .success(message: "Saved to Photos")
+        } catch is CancellationError {
+            return .failure(
+                PresentationFailure(
+                    title: "Download Cancelled",
+                    message: "The photo was not saved.",
+                    systemImage: "xmark.circle"
+                )
+            )
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription
+                ?? "The selected photo version could not be saved."
+            return .failure(
+                PresentationFailure(
+                    title: "Download Failed",
+                    message: message,
+                    systemImage: "arrow.clockwise.circle"
+                )
             )
         }
     }
 }
 
-private struct ViewerExportPresentation: Identifiable {
-    let item: ViewerItem
-    let variant: AssetVariant
-
-    var id: String { "\(item.id.uuidString)-\(variant.rawValue)" }
+private struct FixturePhotosExporter: PhotosExporting {
+    func save(_ export: PreparedExport) async throws { }
 }

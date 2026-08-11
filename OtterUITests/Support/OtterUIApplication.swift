@@ -11,9 +11,12 @@ enum OtterUIApplication {
         additionalArguments: [String] = [],
         environment: [String: String] = [:]
     ) -> XCUIApplication {
-        configuredApplication(
+        var launchEnvironment = environment
+        launchEnvironment["OTTER_USE_FIXTURES"] = "NO"
+        launchEnvironment["OTTER_FORCE_SIGNED_OUT"] = "YES"
+        return configuredApplication(
             arguments: additionalArguments,
-            environment: environment.merging(["OTTER_USE_FIXTURES": "NO"]) { current, _ in current }
+            environment: launchEnvironment
         )
     }
 

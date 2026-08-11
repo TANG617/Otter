@@ -35,6 +35,115 @@ struct ZoomGeometryTests {
         #expect(NormalizedPhotoAnchor.center == .init(x: 0.5, y: 0.5))
     }
 
+    @Test("Gesture intent waits for hysteresis and locks the dominant axis")
+    func gestureIntent() {
+        #expect(ZoomGeometry.resolvedAxis(translation: CGPoint(x: 7, y: 6)) == nil)
+        #expect(ZoomGeometry.resolvedAxis(translation: CGPoint(x: 12, y: 4)) == .horizontal)
+        #expect(ZoomGeometry.resolvedAxis(translation: CGPoint(x: 3, y: 14)) == .vertical)
+    }
+
+    @Test("Zoomed pan hands only edge remainder to paging")
+    func zoomEdgeHandoff() {
+        #expect(
+            ZoomGeometry.horizontalPageHandoff(
+                fingerTranslation: 80,
+                startingOffset: 50,
+                minimumOffset: 0,
+                maximumOffset: 200
+            ) == 30
+        )
+        #expect(
+            ZoomGeometry.horizontalPageHandoff(
+                fingerTranslation: -90,
+                startingOffset: 150,
+                minimumOffset: 0,
+                maximumOffset: 200
+            ) == -40
+        )
+        #expect(
+            ZoomGeometry.horizontalPageHandoff(
+                fingerTranslation: 30,
+                startingOffset: 50,
+                minimumOffset: 0,
+                maximumOffset: 200
+            ) == 0
+        )
+    }
+
+    @Test("Velocity projection commits a page before release crosses the distance threshold")
+    func velocityProjectedPage() {
+        let next = ZoomGeometry.resolvePage(
+            translation: -40,
+            velocity: -700,
+            pageWidth: 390,
+            canGoPrevious: true,
+            canGoNext: true
+        )
+        #expect(next.direction == .next)
+        #expect(next.projectedTranslation < -390 * 0.25)
+
+        let unavailable = ZoomGeometry.resolvePage(
+            translation: 140,
+            velocity: 0,
+            pageWidth: 390,
+            canGoPrevious: false,
+            canGoNext: true
+        )
+        #expect(unavailable.direction == nil)
+
+        let clearIPadDrag = ZoomGeometry.resolvePage(
+            translation: -130,
+            velocity: 0,
+            pageWidth: 1_024,
+            canGoPrevious: true,
+            canGoNext: true
+        )
+        #expect(clearIPadDrag.direction == .next)
+    }
+
+    @Test("Outer page edges rubber-band progressively")
+    func pageRubberBand() {
+        let first = ZoomGeometry.rubberBanded(60, dimension: 390)
+        let second = ZoomGeometry.rubberBanded(120, dimension: 390)
+        #expect(first > 0)
+        #expect(second > first)
+        #expect(second - first < 60)
+        #expect(
+            ZoomGeometry.pageTranslation(
+                120,
+                pageWidth: 390,
+                canGoPrevious: false,
+                canGoNext: true
+            ) == second
+        )
+    }
+
+    @Test("Dismissal combines distance and downward velocity")
+    func dismissalDecision() {
+        #expect(
+            ZoomGeometry.shouldCompleteDismissal(
+                translation: 160,
+                velocity: 0,
+                viewportHeight: 844
+            )
+        )
+        #expect(
+            ZoomGeometry.shouldCompleteDismissal(
+                translation: 30,
+                velocity: 1_000,
+                viewportHeight: 844
+            )
+        )
+        #expect(
+            !ZoomGeometry.shouldCompleteDismissal(
+                translation: 30,
+                velocity: 80,
+                viewportHeight: 844
+            )
+        )
+        #expect(ZoomGeometry.dismissalProgress(translation: 1_000, viewportHeight: 844) == 1)
+    }
+
     @MainActor
     @Test("Size change preserves zoom instead of resetting to fit")
     func sizeChangePreservesZoom() {
@@ -49,6 +158,58 @@ struct ZoomGeometryTests {
 
         #expect(abs(view.zoomScale - 2.25) < 0.001)
         #expect(view.contentSize.width > view.bounds.width)
+    }
+
+    @MainActor
+    @Test("Double-tap remains zooming until the UIKit animator completes")
+    func doubleTapLifecycle() {
+        let view = ZoomingImageScrollView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        view.setSurface(viewerTestFrame(quality: .fullsize, width: 800, height: 600).surface)
+        view.layoutIfNeeded()
+        var interactions: [ViewerInteractionState] = []
+        view.onInteractionChanged = { interactions.append($0) }
+
+        view.performDoubleTap(at: CGPoint(x: 400, y: 300))
+
+        #expect(interactions == [.zooming])
+        view.finishProgrammaticZoomImmediatelyForTesting()
+        #expect(interactions == [.zooming, .idle])
+        #expect(view.zoomScale > view.minimumZoomScale)
+    }
+
+    @MainActor
+    @Test("Reduced Motion double-tap completes synchronously without an animator")
+    func reducedMotionDoubleTapLifecycle() {
+        let view = ZoomingImageScrollView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        view.reduceMotion = true
+        view.setSurface(viewerTestFrame(quality: .fullsize, width: 800, height: 600).surface)
+        view.layoutIfNeeded()
+        var interactions: [ViewerInteractionState] = []
+        view.onInteractionChanged = { interactions.append($0) }
+
+        view.performDoubleTap(at: CGPoint(x: 400, y: 300))
+
+        #expect(interactions == [.zooming, .idle])
+        #expect(view.zoomScale > view.minimumZoomScale)
+    }
+
+    @MainActor
+    @Test("The custom one-finger pan coexists with the scroll view pan")
+    func recognizerConfiguration() {
+        let view = ZoomingImageScrollView()
+        let customPans = view.gestureRecognizers?
+            .compactMap { $0 as? UIPanGestureRecognizer }
+            .filter { $0 !== view.panGestureRecognizer } ?? []
+        let taps = view.gestureRecognizers?.compactMap { $0 as? UITapGestureRecognizer } ?? []
+
+        #expect(customPans.count == 1)
+        #expect(customPans[0].maximumNumberOfTouches == 1)
+        #expect(taps.contains { $0.numberOfTapsRequired == 1 })
+        #expect(taps.contains { $0.numberOfTapsRequired == 2 })
+        #expect(view.gestureRecognizer(
+            customPans[0],
+            shouldRecognizeSimultaneouslyWith: view.panGestureRecognizer
+        ))
     }
 }
 

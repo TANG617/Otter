@@ -29,13 +29,6 @@ enum AccessibilityID {
         static let actionStatus = "diagnostics.action.status"
     }
 
-    enum Export {
-        static let screen = "export.screen"
-        static func variant(_ value: ExportVariant) -> String { "export.variant.\(value.rawValue)" }
-        static let photos = "export.photos"
-        static let files = "export.files"
-    }
-
     enum State {
         static let loading = "state.loading"
         static let empty = "state.empty"

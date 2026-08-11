@@ -57,7 +57,7 @@ enum SettingsConfirmation: String, Equatable, Identifiable {
     var message: String {
         switch self {
         case .clearCache:
-            "Cached media will be removed. Otter can download it again when needed."
+            "Cached media will be removed from this device and downloaded again when needed. Photos on your server will not be deleted."
         case .signOut:
             "The active account will be removed from this device."
         }

@@ -44,6 +44,8 @@ xcodebuild test \
 
 Fixture UI tests launch the app with `-OTTER_USE_FIXTURES YES` and require no Immich credentials. Live integration tests use `OTTER_TEST_SERVER_URL` and `OTTER_TEST_API_KEY`; when either is absent, those tests skip with an explicit reason.
 
+The CI and local smoke scripts write `.xcresult` bundles and verify that the expected tests actually executed; a zero-test selection fails the run.
+
 For a 100,000-asset deterministic stress run:
 
 ```sh
@@ -64,7 +66,7 @@ Ordinary contributors do not need XcodeGen because `Otter.xcodeproj` is committe
 
 ## Local configuration
 
-Copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` only for local build-setting overrides. Credentials never belong in xcconfig or schemes.
+Copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` only for local build-setting overrides. Set `OTTER_DEVELOPMENT_TEAM` there when a signed device/archive build needs your Apple Team ID. Simulator builds remain team-independent with `CODE_SIGNING_ALLOWED=NO`. Credentials never belong in xcconfig or schemes, and `Config/Local.xcconfig` is ignored by Git.
 
 ## Documentation
 

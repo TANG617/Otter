@@ -46,7 +46,7 @@ The media-delivery path is the primary performance-critical subsystem.
                     Immich Server
 ```
 
-A separate `AssetExporter` owns explicit downloads to Photos/Files. Export is not a side effect of viewer caching.
+A separate `AssetExporter` owns explicit file-backed downloads and `PhotosExporter` owns add-only Photos insertion. Export is not a side effect of viewer caching.
 
 ---
 
@@ -101,8 +101,7 @@ Otter/
 │   │
 │   └── AssetExport/
 │       ├── AssetExporter.swift
-│       ├── PhotosExporter.swift
-│       └── FilesExporter.swift
+│       └── PhotosExporter.swift
 ```
 
 The exact package boundaries may be collapsed early if build complexity outweighs value, but the **dependency boundaries** below should remain.
@@ -342,7 +341,7 @@ Recommended logical sessions:
 
 ### Export/download session
 
-- explicit Original/Current downloads
+- the Viewer-selected Original/Current rendition
 - download-task/file-based behavior
 - large payloads should flow to temporary files rather than whole-buffer `Data`
 
@@ -406,14 +405,9 @@ enum ExportVariant: Hashable, Sendable {
     case current
     case original
 }
-
-enum ExportDestination: Hashable, Sendable {
-    case photosLibrary
-    case files
-}
 ```
 
-`AssetExporter` should prepare a user-owned file for the selected rendition.
+`AssetExporter` prepares a temporary file for the Viewer-selected rendition. `PhotosExporter` requests add-only authorization and creates the user-owned Photos asset. Success, failure, and cancellation clean the prepared file; a stale task cannot publish state for another Viewer item.
 
 ### Original contract
 

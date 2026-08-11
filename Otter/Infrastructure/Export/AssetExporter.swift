@@ -15,6 +15,31 @@ enum ExportVariant: String, CaseIterable, Hashable, Identifiable, Sendable {
     }
 }
 
+struct AssetExportAvailability: Equatable, Sendable {
+    let current: CapabilityAvailability
+    let original: CapabilityAvailability
+
+    static let available = AssetExportAvailability(current: .available, original: .available)
+
+    init(current: CapabilityAvailability, original: CapabilityAvailability) {
+        self.current = current
+        self.original = original
+    }
+
+    init(serverCapabilities: ServerCapabilities) {
+        self.init(
+            current: serverCapabilities.currentDownload,
+            original: serverCapabilities.originalDownload
+        )
+    }
+
+    func supports(_ variant: ExportVariant) -> Bool {
+        let availability = variant == .current ? current : original
+        if case .unavailable = availability { return false }
+        return true
+    }
+}
+
 struct PreparedExport: Hashable, Identifiable, Sendable {
     let id: UUID
     let fileURL: URL
@@ -25,10 +50,12 @@ struct PreparedExport: Hashable, Identifiable, Sendable {
 
 enum AssetExportError: Error, Equatable, LocalizedError {
     case currentUnavailable
+    case originalUnavailable
     case permissionDenied
     case emptyFile
     case unsafeOutputPath
     case photosAddPermissionDenied
+    case photosAddPermissionRestricted
     case photosSaveFailed
     case transport
 
@@ -36,6 +63,8 @@ enum AssetExportError: Error, Equatable, LocalizedError {
         switch self {
         case .currentUnavailable:
             "This server cannot export the Current Version. Original was not substituted."
+        case .originalUnavailable:
+            "This server cannot export the Original. Current Version was not substituted."
         case .permissionDenied:
             "This API key does not have permission to download the selected version."
         case .emptyFile:
@@ -44,8 +73,10 @@ enum AssetExportError: Error, Equatable, LocalizedError {
             "Otter could not create a safe export file."
         case .photosAddPermissionDenied:
             "Allow Otter to add photos in Settings, then try again."
+        case .photosAddPermissionRestricted:
+            "This device restricts access to adding photos. Check Screen Time or device management settings."
         case .photosSaveFailed:
-            "Photos could not save this file format. You can still export it to Files."
+            "Photos could not save this file format."
         case .transport:
             "The selected version could not be downloaded."
         }
@@ -64,20 +95,20 @@ actor AssetExporter: AssetExporting {
     private let requestBuilder: any MediaRequestBuilding
     private let transport: any MediaTransporting
     private let exportDirectory: URL
-    private let currentExportAvailable: Bool
+    private let availability: AssetExportAvailability
     private let fileManager: FileManager
 
     init(
         requestBuilder: any MediaRequestBuilding,
         transport: any MediaTransporting,
         exportDirectory: URL,
-        currentExportAvailable: Bool,
+        availability: AssetExportAvailability,
         fileManager: FileManager = .default
     ) throws {
         self.requestBuilder = requestBuilder
         self.transport = transport
         self.exportDirectory = exportDirectory.standardizedFileURL
-        self.currentExportAvailable = currentExportAvailable
+        self.availability = availability
         self.fileManager = fileManager
         try fileManager.createDirectory(at: exportDirectory, withIntermediateDirectories: true)
     }
@@ -86,8 +117,10 @@ actor AssetExporter: AssetExporting {
         asset: MediaAssetDescriptor,
         variant: ExportVariant
     ) async throws -> PreparedExport {
-        if variant == .current, !currentExportAvailable {
-            throw AssetExportError.currentUnavailable
+        guard availability.supports(variant) else {
+            throw variant == .current
+                ? AssetExportError.currentUnavailable
+                : AssetExportError.originalUnavailable
         }
         try Task.checkCancellation()
         let assetVariant: AssetVariant = variant == .current ? .current : .original
